@@ -6,6 +6,7 @@ import {
   Radio,
   GitGraph,
   User,
+  Calendar,
 } from "lucide-react";
 
 import AdminNavbar from "@/components/AdminNavbar";
@@ -52,6 +53,12 @@ export const AdminSidebarMenu = [
   },
   {
     id: 7,
+    title: "Meetings",
+    href: "/dashboard/meetings",
+    icon: Calendar,
+  },
+  {
+    id: 8,
     title: "Home",
     href: "/",
     icon: Home,

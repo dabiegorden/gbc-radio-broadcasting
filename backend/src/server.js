@@ -24,6 +24,7 @@ import programRoutes from "./routes/programs.js";
 import engagementRoutes from "./routes/engagement.js";
 import analyticsRoutes from "./routes/analytics.js";
 import streamingRoutes from "./routes/streaming.js";
+import meetingRoutes from "./routes/meetingRoutes.js";
 
 // Initialize express app
 const app = express();
@@ -65,6 +66,7 @@ app.use("/api/programs", programRoutes);
 app.use("/api/engagement", engagementRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/streaming", streamingRoutes);
+app.use("/api/meetings", meetingRoutes);
 
 // Health check route
 app.get("/api/health", (req, res) => {

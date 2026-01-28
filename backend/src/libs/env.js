@@ -9,4 +9,5 @@ export const ENV = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   NODE_ENV: process.env.NODE_ENV,
   CORS_ORIGIN: process.env.CORS_ORIGIN,
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
 };

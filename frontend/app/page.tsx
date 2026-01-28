@@ -102,6 +102,13 @@ const LandingPage = () => {
     return "/live-stream";
   };
 
+  const getMyMeetingsLink = () => {
+    if (user?.role === "users") {
+      return "/my-meetings";
+    }
+    return "/dashboard";
+  };
+
   const features = [
     {
       icon: <Activity className="w-8 h-8" />,
@@ -230,6 +237,12 @@ const LandingPage = () => {
                 Analytics
               </Link>
               <Link
+                href="/schedule"
+                className="text-purple-200 hover:text-white transition-colors font-semibold"
+              >
+                Schedule Meeting
+              </Link>
+              <Link
                 href="#about"
                 className="text-purple-200 hover:text-white transition-colors font-semibold"
               >
@@ -243,6 +256,13 @@ const LandingPage = () => {
                     className="px-4 py-2 bg-linear-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl text-white font-semibold transition-all duration-300 hover:scale-105 shadow-lg shadow-purple-500/50"
                   >
                     {user.role === "admin" ? "Dashboard" : "Live Stream"}
+                  </Link>
+
+                  <Link
+                    href={getMyMeetingsLink()}
+                    className="px-4 py-2 bg-linear-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl text-white font-semibold transition-all duration-300 hover:scale-105 shadow-lg shadow-purple-500/50"
+                  >
+                    {user.role === "users" ? "My meetings" : "Dashboard"}
                   </Link>
 
                   <div className="flex items-center gap-3 px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-xl">
