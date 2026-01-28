@@ -1,21 +1,125 @@
 import express from "express";
 import cors from "cors";
-import cookieParser from "cookie-parser";
-import { ENV } from "./libs/env.js";
+import dotenv from "dotenv";
+import { fileURLToPath } from "url";
+import { dirname } from "path";
+import { Server as SocketIOServer } from "socket.io";
+import http from "http";
 
+// Load environment variables
+dotenv.config({ quiet: true });
+
+// Config imports
+import { connectDB } from "./config/database.js";
+import { getGeminiClient } from "./config/gemini.js";
+
+// Get __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Import routes
+import authRoutes from "./routes/auth.js";
+import userRoutes from "./routes/users.js";
+import programRoutes from "./routes/programs.js";
+import engagementRoutes from "./routes/engagement.js";
+import analyticsRoutes from "./routes/analytics.js";
+import streamingRoutes from "./routes/streaming.js";
+
+// Initialize express app
 const app = express();
+const server = http.createServer(app);
+const io = new SocketIOServer(server, {
+  cors: {
+    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    credentials: true,
+  },
+});
 
-// middleware
-app.use(cors({ origin: "http://localhost:3000" }));
+// Middleware
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    credentials: true,
+  }),
+);
 app.use(express.json());
-app.use(cookieParser());
 
-const PORT = ENV.PORT;
+// Connect to MongoDB
+await connectDB();
 
-const startServer = async () => {
-  app.listen(PORT, () => {
-    console.log(`Server is running on port: ${PORT}`);
+// Initialize Gemini AI
+const geminiClient = getGeminiClient();
+console.log("✓ AI Services initialized");
+
+// Make io accessible to routes
+app.use((req, res, next) => {
+  req.io = io;
+  next();
+});
+
+// Routes
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/programs", programRoutes);
+app.use("/api/engagement", engagementRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/streaming", streamingRoutes);
+
+// Health check route
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "Server is running",
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
   });
-};
+});
 
-startServer();
+// Socket IO Events
+io.on("connection", (socket) => {
+  console.log("New client connected:", socket.id);
+
+  // Listen for engagement updates
+  socket.on("engagement-update", (data) => {
+    io.emit("engagement-update", data);
+  });
+
+  // Listen for stream status
+  socket.on("stream-status", (status) => {
+    io.emit("stream-status", status);
+  });
+
+  socket.on("disconnect", () => {
+    console.log("Client disconnected:", socket.id);
+  });
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error("Error:", err);
+  res.status(err.status || 500).json({
+    error: {
+      message: err.message || "Internal Server Error",
+      status: err.status || 500,
+    },
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    error: {
+      message: "Route not found",
+      path: req.path,
+    },
+  });
+});
+
+// Start server
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+  console.log(`Environment: ${process.env.NODE_ENV}`);
+});
+
+export default app;

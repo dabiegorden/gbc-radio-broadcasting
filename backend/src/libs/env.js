@@ -4,6 +4,9 @@ dotenv.config({ quiet: true });
 
 export const ENV = {
   MONGODB_URL: process.env.MONGODB_URL,
-  JWT_SWCRET: process.env.JWT_SWCRET,
+  JWT_SECRET: process.env.JWT_SECRET,
   PORT: process.env.PORT,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+  CORS_ORIGIN: process.env.CORS_ORIGIN,
 };
