@@ -267,8 +267,8 @@ const LandingPage = () => {
 
                   <div className="flex items-center gap-3 px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-xl">
                     <div className="w-9 h-9 bg-linear-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                      {user.firstName.charAt(0).toUpperCase()}
-                      {user.lastName.charAt(0).toUpperCase()}
+                      {user.firstName?.charAt(0).toUpperCase()}
+                      {user.lastName?.charAt(0).toUpperCase()}
                     </div>
                     <div className="text-left">
                       <p className="text-white text-sm font-semibold">
