@@ -7,6 +7,7 @@ import {
   GitGraph,
   User,
   Calendar,
+  ListVideo,
 } from "lucide-react";
 
 import AdminNavbar from "@/components/AdminNavbar";
@@ -35,30 +36,36 @@ export const AdminSidebarMenu = [
   },
   {
     id: 4,
+    title: "Go Live",
+    href: "/dashboard/go-live",
+    icon: ListVideo,
+  },
+  {
+    id: 5,
     title: "Engagement",
     href: "/dashboard/engagement",
     icon: Video,
   },
   {
-    id: 5,
+    id: 6,
     title: "Analytics",
     href: "/dashboard/analytics",
     icon: GitGraph,
   },
   {
-    id: 6,
+    id: 7,
     title: "Users",
     href: "/dashboard/users",
     icon: User,
   },
   {
-    id: 7,
+    id: 8,
     title: "Meetings",
     href: "/dashboard/meetings",
     icon: Calendar,
   },
   {
-    id: 8,
+    id: 9,
     title: "Home",
     href: "/",
     icon: Home,

@@ -216,9 +216,6 @@ const LandingPage = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-black text-white">GBC Radio</h1>
-                <p className="text-xs text-purple-300 font-semibold">
-                  Predictive Analytics Platform
-                </p>
               </div>
             </Link>
 
@@ -235,6 +232,12 @@ const LandingPage = () => {
                 className="text-purple-200 hover:text-white transition-colors font-semibold"
               >
                 Analytics
+              </Link>
+              <Link
+                href="/join-live-stream"
+                className="text-purple-200 hover:text-white transition-colors font-semibold"
+              >
+                Join Live Stream
               </Link>
               <Link
                 href="/schedule"
@@ -407,7 +410,7 @@ const LandingPage = () => {
               <div className="inline-flex items-center gap-2 px-4 py-2 bg-purple-500/20 border border-purple-500/30 rounded-full">
                 <Sparkles className="w-4 h-4 text-purple-400" />
                 <span className="text-purple-300 text-sm font-semibold">
-                  AI-Powered Broadcasting Analytics
+                  Broadcasting Analytics
                 </span>
               </div>
 
@@ -650,9 +653,6 @@ const LandingPage = () => {
                 </div>
                 <div>
                   <h3 className="text-xl font-black text-white">GBC Radio</h3>
-                  <p className="text-xs text-purple-300 font-semibold">
-                    Predictive Analytics Platform
-                  </p>
                 </div>
               </div>
               <p className="text-purple-200 mb-4 max-w-md">

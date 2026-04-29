@@ -10,4 +10,5 @@ export const ENV = {
   NODE_ENV: process.env.NODE_ENV,
   CORS_ORIGIN: process.env.CORS_ORIGIN,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
+  AGORA_APP_ID: process.env.AGORA_APP_ID,
 };

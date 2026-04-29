@@ -62,7 +62,7 @@ export default function LoginPage() {
         router.push("/dashboard");
       } else {
         // Regular users go to live stream page
-        router.push("/live-stream");
+        router.push("/");
       }
     } catch (err: any) {
       setError(err.message || "Login failed. Please try again.");

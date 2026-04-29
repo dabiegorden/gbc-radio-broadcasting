@@ -18,6 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Import routes
+import streamRoutes from "./routes/Streamroutes.js";
 import authRoutes from "./routes/auth.js";
 import userRoutes from "./routes/users.js";
 import programRoutes from "./routes/programs.js";
@@ -67,6 +68,7 @@ app.use("/api/engagement", engagementRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/streaming", streamingRoutes);
 app.use("/api/meetings", meetingRoutes);
+app.use("/api/stream", streamRoutes);
 
 // Health check route
 app.get("/api/health", (req, res) => {
