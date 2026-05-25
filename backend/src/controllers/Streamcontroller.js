@@ -1,54 +1,78 @@
 import { StreamClient } from "@stream-io/node-sdk";
-import Program from "../models/Program.js";
+import { v2 as cloudinary } from "cloudinary";
+import { v4 as uuidv4 } from "uuid";
+import LiveSession from "../models/LiveSession.js";
 import User from "../models/User.js";
 
 /**
- * Stream Controller
- * Handles GetStream Video livestreaming — token generation, call management,
- * recording retrieval, and call cleanup.
- *
- * All routes are protected by your existing auth middleware.
+ * Stream Controller  (v2 — program-independent)
+ * ──────────────────────────────────────────────
+ * Handles GetStream Video livestreaming without requiring a Program document.
+ * Every broadcast creates / updates a LiveSession record in MongoDB.
+ * When a session ends the GetStream recording is uploaded to Cloudinary so
+ * viewers can watch the replay via a permanent URL.
  *
  * ENV vars required:
- *   STREAM_API_KEY   — your GetStream app key
- *   STREAM_API_SECRET — your GetStream app secret
+ *   STREAM_API_KEY        — your GetStream app key
+ *   STREAM_API_SECRET     — your GetStream app secret
+ *   CLOUDINARY_CLOUD_NAME — Cloudinary cloud name
+ *   CLOUDINARY_API_KEY    — Cloudinary API key
+ *   CLOUDINARY_API_SECRET — Cloudinary API secret
  */
 
-// ─── Lazy-initialised client ──────────────────────────────────────────────────
-let _streamClient = null;
+// ─── Cloudinary config ────────────────────────────────────────────────────────
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
 
+// ─── Lazy-initialised GetStream client ───────────────────────────────────────
+let _streamClient = null;
 const getStreamClient = () => {
   if (_streamClient) return _streamClient;
-
   const { STREAM_API_KEY, STREAM_API_SECRET } = process.env;
-
   if (!STREAM_API_KEY || !STREAM_API_SECRET) {
-    throw new Error(
-      "STREAM_API_KEY and STREAM_API_SECRET must be set in your .env",
-    );
+    throw new Error("STREAM_API_KEY and STREAM_API_SECRET must be set in .env");
   }
-
   _streamClient = new StreamClient(STREAM_API_KEY, STREAM_API_SECRET);
   return _streamClient;
 };
 
-// ─── Helper: build a stable call-id from a program ───────────────────────────
-const buildCallId = (programId) => `radio-program-${programId}`;
-
-// ─── Helper: build a GetStream user id from a MongoDB user ───────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 const buildStreamUserId = (user) =>
   `user-${user._id.toString().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+
+/**
+ * Upload a video URL to Cloudinary under the `live-sessions/` folder.
+ * Returns the Cloudinary upload result (publicId, secure_url, bytes …).
+ */
+const uploadRecordingToCloudinary = async (videoUrl, sessionId) => {
+  const result = await cloudinary.uploader.upload(videoUrl, {
+    resource_type: "video",
+    folder: "live-sessions",
+    public_id: `session-${sessionId}`,
+    overwrite: true,
+    // Eager transformation — generate an HLS stream + a thumbnail
+    eager: [
+      { streaming_profile: "hd", format: "m3u8" }, // HLS
+      { width: 1280, height: 720, crop: "limit", format: "mp4" }, // fallback mp4
+    ],
+    eager_async: false,
+    // Generate a poster/thumbnail at 5 s
+    transformation: [{ start_offset: "5", crop: "limit" }],
+  });
+  return result;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/stream/token
 // Generate a GetStream token for the currently authenticated user.
-// Called by both the presenter (admin) and audience members.
 // ─────────────────────────────────────────────────────────────────────────────
 export const generateStreamToken = async (req, res) => {
   try {
     const client = getStreamClient();
     const user = await User.findById(req.user._id).select("-password");
-
     if (!user) {
       return res
         .status(404)
@@ -58,21 +82,16 @@ export const generateStreamToken = async (req, res) => {
     const streamUserId = buildStreamUserId(user);
     const displayName = `${user.firstName} ${user.lastName}`.trim();
 
-    // Upsert the user on GetStream's side so their profile is up-to-date
     await client.upsertUsers([
       {
         id: streamUserId,
         name: displayName,
         role: user.role === "admin" ? "admin" : "user",
-        custom: {
-          mongoId: user._id.toString(),
-          email: user.email,
-        },
+        custom: { mongoId: user._id.toString(), email: user.email },
       },
     ]);
 
-    // Token valid for 6 hours — enough for a broadcast session
-    const expiresAt = Math.floor(Date.now() / 1000) + 6 * 60 * 60;
+    const expiresAt = Math.floor(Date.now() / 1000) + 6 * 60 * 60; // 6 h
     const token = client.generateUserToken({
       user_id: streamUserId,
       exp: expiresAt,
@@ -97,291 +116,455 @@ export const generateStreamToken = async (req, res) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/stream/call/:programId
-// Create (or fetch) a livestream call tied to a Program document.
-// Admin only. Marks the program as live in MongoDB.
+// POST /api/stream/session/start
+// Create a new LiveSession + GetStream call.  No Program required.
+// Body (all optional): { title, description, tags, coverImage, linkedProgram }
 // ─────────────────────────────────────────────────────────────────────────────
-export const createOrGetCall = async (req, res) => {
+export const startSession = async (req, res) => {
   try {
     const client = getStreamClient();
-    const { programId } = req.params;
-
-    const program = await Program.findById(programId);
-    if (!program) {
+    const user = await User.findById(req.user._id).select("-password");
+    if (!user) {
       return res
         .status(404)
-        .json({ success: false, message: "Program not found" });
+        .json({ success: false, message: "User not found" });
     }
 
-    const callId = buildCallId(programId);
-    const presenterStreamId = buildStreamUserId(req.user);
+    const {
+      title = "Live Broadcast",
+      description = "",
+      tags = [],
+      coverImage = null,
+      linkedProgram = null,
+    } = req.body;
 
-    // Create the call on GetStream — idempotent, safe to call repeatedly
-    const callResponse = await client.video.getOrCreateCall({
+    const streamUserId = buildStreamUserId(user);
+    const callId = `session-${uuidv4()}`;
+
+    // Create the call on GetStream
+    await client.video.getOrCreateCall({
       type: "livestream",
       id: callId,
       data: {
-        created_by_id: presenterStreamId,
-        members: [{ user_id: presenterStreamId, role: "host" }],
-        custom: {
-          programId: programId,
-          programTitle: program.title,
-          programHost: program.host,
-          programCategory: program.category,
-        },
+        created_by_id: streamUserId,
+        members: [{ user_id: streamUserId, role: "host" }],
+        custom: { title, hostedBy: user._id.toString() },
         settings_override: {
-          recording: {
-            mode: "auto-on", // record every session automatically
-            quality: "1080p",
-          },
-          backstage: {
-            enabled: false, // go live immediately on join
-          },
+          recording: { mode: "auto-on", quality: "1080p" },
+          backstage: { enabled: false },
         },
       },
     });
 
-    // Mark the program as live in your DB
-    program.isLive = true;
-    program.status = "live";
-    program.updatedAt = new Date();
-    await program.save();
+    // Persist a LiveSession document
+    const session = await LiveSession.create({
+      title,
+      description,
+      hostedBy: user._id,
+      hostDisplayName: `${user.firstName} ${user.lastName}`.trim(),
+      streamCallId: callId,
+      streamCallType: "livestream",
+      status: "live",
+      startedAt: new Date(),
+      tags,
+      coverImage,
+      linkedProgram: linkedProgram || null,
+    });
 
-    return res.json({
-      success: true,
-      message: "Livestream call ready",
-      call: {
+    // Emit real-time event if Socket.IO is available
+    if (req.io) {
+      req.io.emit("session-started", {
+        sessionId: session._id,
         callId,
-        callType: "livestream",
-        programId,
-        programTitle: program.title,
-      },
-      streamData: callResponse,
-    });
-  } catch (error) {
-    console.error("createOrGetCall error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to create livestream call",
-      error: error.message,
-    });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/stream/call/:programId
-// Lightweight — just returns the call metadata so the audience page can join.
-// ─────────────────────────────────────────────────────────────────────────────
-export const getCallInfo = async (req, res) => {
-  try {
-    const { programId } = req.params;
-
-    const program = await Program.findById(programId);
-    if (!program) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Program not found" });
+        title,
+        host: session.hostDisplayName,
+      });
     }
 
-    return res.json({
+    return res.status(201).json({
       success: true,
-      call: {
-        callId: buildCallId(programId),
+      message: "Live session started",
+      session: {
+        _id: session._id,
+        title: session.title,
+        callId,
         callType: "livestream",
-        programId,
-        programTitle: program.title,
-        programHost: program.host,
-        programCategory: program.category,
-        isLive: program.isLive,
-        currentListeners: program.currentListeners,
+        status: session.status,
+        startedAt: session.startedAt,
+      },
+      stream: {
+        callId,
+        callType: "livestream",
         apiKey: process.env.STREAM_API_KEY,
       },
     });
   } catch (error) {
-    console.error("getCallInfo error:", error);
+    console.error("startSession error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to get call info",
+      message: "Failed to start session",
       error: error.message,
     });
   }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/stream/call/:programId/end
-// Admin ends the broadcast. Marks the program offline in MongoDB.
+// POST /api/stream/session/:sessionId/end
+// End a live session: leave the GetStream call, fetch the recording,
+// upload it to Cloudinary, and update the LiveSession document.
 // ─────────────────────────────────────────────────────────────────────────────
-export const endCall = async (req, res) => {
+export const endSession = async (req, res) => {
   try {
     const client = getStreamClient();
-    const { programId } = req.params;
+    const { sessionId } = req.params;
 
-    const program = await Program.findById(programId);
-    if (!program) {
+    const session = await LiveSession.findById(sessionId);
+    if (!session) {
       return res
         .status(404)
-        .json({ success: false, message: "Program not found" });
+        .json({ success: false, message: "Session not found" });
     }
 
-    const callId = buildCallId(programId);
+    const endedAt = new Date();
+    const durationSeconds = session.startedAt
+      ? Math.floor((endedAt - new Date(session.startedAt)) / 1000)
+      : null;
 
-    // Tell GetStream to end the call — this also triggers recording finalisation
+    // Tell GetStream to end the call (triggers recording finalisation)
     try {
-      const call = client.video.call("livestream", callId);
+      const call = client.video.call(
+        session.streamCallType,
+        session.streamCallId,
+      );
       await call.end();
     } catch (streamErr) {
-      // If the call doesn't exist on GetStream it's already ended — that's fine
       console.warn("GetStream end call warning:", streamErr.message);
     }
 
-    // Update MongoDB
-    program.isLive = false;
-    program.status =
-      new Date() > new Date(program.scheduleEndTime)
-        ? "completed"
-        : "scheduled";
-    program.updatedAt = new Date();
-    await program.save();
+    // Mark session as ended while recording processes
+    session.status = "processing";
+    session.endedAt = endedAt;
+    session.durationSeconds = durationSeconds;
+    await session.save();
 
-    return res.json({
-      success: true,
-      message: "Livestream ended successfully",
-      program,
-    });
-  } catch (error) {
-    console.error("endCall error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to end call",
-      error: error.message,
-    });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/stream/recordings/:programId
-// Returns the list of recordings for a program so audiences can watch replays.
-// ─────────────────────────────────────────────────────────────────────────────
-export const getRecordings = async (req, res) => {
-  try {
-    const client = getStreamClient();
-    const { programId } = req.params;
-
-    const program = await Program.findById(programId);
-    if (!program) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Program not found" });
+    // Emit real-time event
+    if (req.io) {
+      req.io.emit("session-ended", {
+        sessionId: session._id,
+        callId: session.streamCallId,
+        title: session.title,
+      });
     }
 
-    const callId = buildCallId(programId);
-
-    let recordings = [];
-    try {
-      const call = client.video.call("livestream", callId);
-      const response = await call.listRecordings();
-      recordings = response.recordings || [];
-    } catch (streamErr) {
-      // Call may not exist yet if it was never started
-      console.warn("No recordings found:", streamErr.message);
-    }
-
-    return res.json({
-      success: true,
-      programId,
-      programTitle: program.title,
-      recordings: recordings.map((r) => ({
-        filename: r.filename,
-        url: r.url,
-        startTime: r.start_time,
-        endTime: r.end_time,
-        duration:
-          r.end_time && r.start_time
-            ? Math.round(
-                (new Date(r.end_time) - new Date(r.start_time)) / 1000 / 60,
-              )
-            : null,
-      })),
-      total: recordings.length,
-    });
-  } catch (error) {
-    console.error("getRecordings error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to fetch recordings",
-      error: error.message,
-    });
-  }
-};
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/stream/recordings  (no programId — all programs)
-// Aggregate recordings across every program — useful for an admin dashboard.
-// ─────────────────────────────────────────────────────────────────────────────
-export const getAllRecordings = async (req, res) => {
-  try {
-    const client = getStreamClient();
-    const { page = 1, limit = 20 } = req.query;
-
-    // Fetch programs that have ever been live
-    const programs = await Program.find({
-      $or: [{ status: "completed" }, { isLive: true }],
-    })
-      .sort({ updatedAt: -1 })
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
-
-    const results = await Promise.all(
-      programs.map(async (program) => {
-        const callId = buildCallId(program._id.toString());
-        try {
-          const call = client.video.call("livestream", callId);
-          const response = await call.listRecordings();
-          return {
-            programId: program._id,
-            programTitle: program.title,
-            programHost: program.host,
-            programCategory: program.category,
-            recordings: (response.recordings || []).map((r) => ({
-              filename: r.filename,
-              url: r.url,
-              startTime: r.start_time,
-              endTime: r.end_time,
-            })),
-          };
-        } catch {
-          return {
-            programId: program._id,
-            programTitle: program.title,
-            programHost: program.host,
-            programCategory: program.category,
-            recordings: [],
-          };
-        }
-      }),
+    // Attempt to fetch & upload recording (async — may not be ready immediately)
+    // We do this in the background and update the session document when done.
+    uploadSessionRecording(client, session).catch((err) =>
+      console.error("Background recording upload error:", err),
     );
 
     return res.json({
       success: true,
-      data: results.filter((r) => r.recordings.length > 0),
-      pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: programs.length,
+      message: "Session ended. Recording will be available shortly.",
+      session: {
+        _id: session._id,
+        title: session.title,
+        status: session.status,
+        endedAt: session.endedAt,
+        durationSeconds: session.durationSeconds,
       },
     });
   } catch (error) {
-    console.error("getAllRecordings error:", error);
+    console.error("endSession error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch all recordings",
+      message: "Failed to end session",
       error: error.message,
     });
   }
 };
 
+/**
+ * Background job: poll GetStream for the recording, upload to Cloudinary,
+ * update LiveSession.
+ */
+const uploadSessionRecording = async (client, session) => {
+  const MAX_ATTEMPTS = 10;
+  const POLL_INTERVAL_MS = 30_000; // 30 s
+
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await new Promise((r) =>
+        setTimeout(r, attempt === 1 ? 15_000 : POLL_INTERVAL_MS),
+      );
+
+      const call = client.video.call(
+        session.streamCallType,
+        session.streamCallId,
+      );
+      const { recordings = [] } = await call.listRecordings();
+
+      if (recordings.length === 0) {
+        console.log(
+          `Recording not ready yet (attempt ${attempt}/${MAX_ATTEMPTS})`,
+        );
+        continue;
+      }
+
+      // Take the most recent recording
+      const latest = recordings[recordings.length - 1];
+      const rawUrl = latest.url;
+
+      console.log(
+        `Uploading recording to Cloudinary for session ${session._id}…`,
+      );
+      const cldResult = await uploadRecordingToCloudinary(
+        rawUrl,
+        session._id.toString(),
+      );
+
+      // Build playback URL — prefer HLS eager, fall back to secure_url
+      const hlsEager = cldResult.eager?.find((e) => e.format === "m3u8");
+      const playbackUrl = hlsEager?.secure_url || cldResult.secure_url;
+
+      // Thumbnail: replace extension with .jpg
+      const thumbnailUrl = cloudinary.url(cldResult.public_id, {
+        resource_type: "video",
+        format: "jpg",
+        start_offset: "5",
+        width: 640,
+        height: 360,
+        crop: "limit",
+      });
+
+      await LiveSession.findByIdAndUpdate(session._id, {
+        status: "available",
+        rawRecordingUrl: rawUrl,
+        "cloudinary.publicId": cldResult.public_id,
+        "cloudinary.playbackUrl": playbackUrl,
+        "cloudinary.thumbnailUrl": thumbnailUrl,
+        "cloudinary.bytes": cldResult.bytes,
+        "cloudinary.uploadedAt": new Date(),
+      });
+
+      console.log(
+        `✓ Recording available for session ${session._id}: ${playbackUrl}`,
+      );
+      return; // Done
+    } catch (err) {
+      console.error(`Recording upload attempt ${attempt} failed:`, err.message);
+    }
+  }
+
+  // If we never succeeded, mark the session so the admin knows
+  await LiveSession.findByIdAndUpdate(session._id, { status: "ended" });
+  console.warn(
+    `Could not upload recording for session ${session._id} after ${MAX_ATTEMPTS} attempts`,
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/stream/session/:sessionId
+// Public — returns session info + playback URL if available.
+// ─────────────────────────────────────────────────────────────────────────────
+export const getSession = async (req, res) => {
+  try {
+    const session = await LiveSession.findById(req.params.sessionId).populate(
+      "hostedBy",
+      "firstName lastName email",
+    );
+    if (!session) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Session not found" });
+    }
+
+    return res.json({ success: true, session });
+  } catch (error) {
+    console.error("getSession error:", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to fetch session",
+        error: error.message,
+      });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/stream/sessions
+// List sessions — supports ?status=live|available|ended&page=1&limit=20
+// ─────────────────────────────────────────────────────────────────────────────
+export const listSessions = async (req, res) => {
+  try {
+    const { status, page = 1, limit = 20 } = req.query;
+    const query = {};
+    if (status) query.status = status;
+
+    const sessions = await LiveSession.find(query)
+      .sort({ startedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit))
+      .populate("hostedBy", "firstName lastName");
+
+    const total = await LiveSession.countDocuments(query);
+
+    return res.json({
+      success: true,
+      sessions,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("listSessions error:", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to list sessions",
+        error: error.message,
+      });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/stream/sessions/live
+// Returns only currently live sessions (public — for viewers).
+// ─────────────────────────────────────────────────────────────────────────────
+export const getLiveSessions = async (req, res) => {
+  try {
+    const sessions = await LiveSession.find({ status: "live" })
+      .sort({ startedAt: -1 })
+      .populate("hostedBy", "firstName lastName");
+
+    return res.json({
+      success: true,
+      sessions,
+      count: sessions.length,
+      apiKey: process.env.STREAM_API_KEY,
+    });
+  } catch (error) {
+    console.error("getLiveSessions error:", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to fetch live sessions",
+        error: error.message,
+      });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/stream/sessions/recordings
+// Returns past sessions that have a Cloudinary playback URL.
+// ─────────────────────────────────────────────────────────────────────────────
+export const getPastRecordings = async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+
+    const sessions = await LiveSession.find({ status: "available" })
+      .sort({ endedAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit))
+      .populate("hostedBy", "firstName lastName");
+
+    const total = await LiveSession.countDocuments({ status: "available" });
+
+    return res.json({
+      success: true,
+      recordings: sessions.map((s) => ({
+        _id: s._id,
+        title: s.title,
+        description: s.description,
+        host: s.hostDisplayName,
+        startedAt: s.startedAt,
+        endedAt: s.endedAt,
+        durationSeconds: s.durationSeconds,
+        playbackUrl: s.cloudinary.playbackUrl,
+        thumbnailUrl: s.cloudinary.thumbnailUrl,
+        tags: s.tags,
+        coverImage: s.coverImage,
+        linkedProgram: s.linkedProgram,
+      })),
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit),
+      },
+    });
+  } catch (error) {
+    console.error("getPastRecordings error:", error);
+    return res
+      .status(500)
+      .json({
+        success: false,
+        message: "Failed to fetch recordings",
+        error: error.message,
+      });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/stream/token  (kept for backwards compat — same as before)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─── Legacy program-based helpers (kept so existing routes don't break) ───────
+
+export const createOrGetCall = async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message:
+      "This endpoint is deprecated. Use POST /api/stream/session/start instead.",
+  });
+};
+
+export const getCallInfo = async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message:
+      "This endpoint is deprecated. Use GET /api/stream/session/:sessionId instead.",
+  });
+};
+
+export const endCall = async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message:
+      "This endpoint is deprecated. Use POST /api/stream/session/:sessionId/end instead.",
+  });
+};
+
+export const getRecordings = async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message:
+      "This endpoint is deprecated. Use GET /api/stream/sessions/recordings instead.",
+  });
+};
+
+export const getAllRecordings = async (req, res) => {
+  return res.status(410).json({
+    success: false,
+    message:
+      "This endpoint is deprecated. Use GET /api/stream/sessions/recordings instead.",
+  });
+};
+
 export default {
   generateStreamToken,
+  startSession,
+  endSession,
+  getSession,
+  listSessions,
+  getLiveSessions,
+  getPastRecordings,
+  // legacy stubs
   createOrGetCall,
   getCallInfo,
   endCall,

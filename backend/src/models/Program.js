@@ -1,5 +1,32 @@
 import mongoose from "mongoose";
 
+const socialStreamSchema = new mongoose.Schema(
+  {
+    platform: {
+      type: String,
+      enum: ["tiktok", "facebook", "instagram", "youtube"],
+      required: true,
+    },
+    url: {
+      type: String,
+      required: true,
+    },
+    embedUrl: {
+      type: String,
+      default: null, // Auto-derived embed URL for in-app watching
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
+    },
+    label: {
+      type: String,
+      default: null, // e.g. "Main YouTube Stream", "TikTok Live"
+    },
+  },
+  { _id: true },
+);
+
 const programSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -57,10 +84,19 @@ const programSchema = new mongoose.Schema({
       ],
     },
   ],
+
+  // ── Streaming / Broadcast URLs ──────────────────────────────────────────
   streamingUrl: {
     type: String,
-    default: null,
+    default: null, // Primary live broadcast URL (radio/HLS/RTMP etc.)
   },
+  socialStreams: {
+    type: [socialStreamSchema],
+    default: [],
+    // Array of { platform, url, embedUrl, isActive, label }
+  },
+  // ────────────────────────────────────────────────────────────────────────
+
   status: {
     type: String,
     enum: ["scheduled", "live", "completed", "cancelled"],
@@ -104,7 +140,6 @@ const programSchema = new mongoose.Schema({
   },
 });
 
-// Index for finding live or upcoming programs
 programSchema.index({ status: 1, scheduleStartTime: 1 });
 programSchema.index({ isLive: 1 });
 

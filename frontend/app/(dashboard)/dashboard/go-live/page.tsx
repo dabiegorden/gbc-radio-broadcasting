@@ -1,24 +1,20 @@
 "use client";
 
 /**
- * AdminLiveStreamPage
- * ───────────────────
- * Presenter control room. The admin:
- *   1. Picks a program
- *   2. Clicks "Go Live" → backend creates the GetStream call and marks the
- *      program live in MongoDB
- *   3. Camera / mic / screen-share controls appear
- *   4. Live chat & reactions are visible in the sidebar
- *   5. "End Stream" stops recording and marks the program offline
+ * AdminLiveStreamPage  (v2 — program-independent)
+ * ─────────────────────────────────────────────────
+ * The admin can go live instantly without selecting a Program.
+ * Every broadcast is saved as a LiveSession in MongoDB and the
+ * recording is uploaded to Cloudinary for later viewing.
+ *
+ * Tabs:
+ *   Studio   — start / manage the current live session
+ *   Replays  — browse past recordings and watch via Cloudinary URL
  *
  * Route: /dashboard/live-stream  (admin only)
- *
- * Install (once, in your Next.js project):
- *   npm install @stream-io/video-react-sdk
- *   npm install @stream-io/node-sdk   ← backend only, already handled
  */
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   StreamVideo,
   StreamCall,
@@ -27,7 +23,6 @@ import {
   useCallStateHooks,
   CallingState,
 } from "@stream-io/video-react-sdk";
-// CSS is imported globally — see stream.d.ts + globals.css
 import { toast } from "sonner";
 import {
   Radio,
@@ -42,25 +37,20 @@ import {
   Clock,
   Signal,
   RefreshCw,
-  ChevronDown,
   MessageSquare,
-  Smile,
   Send,
+  Play,
+  Film,
+  Tv2,
+  X,
+  Tag,
+  AlignLeft,
+  Loader2,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-interface Program {
-  _id: string;
-  title: string;
-  host: string;
-  category: string;
-  isLive: boolean;
-  status: string;
-  currentListeners: number;
-}
-
 interface StreamCredentials {
   token: string;
   streamUserId: string;
@@ -68,8 +58,67 @@ interface StreamCredentials {
   apiKey: string;
 }
 
-// ─── Inner component — rendered only when a call is active ───────────────────
-const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
+interface LiveSession {
+  _id: string;
+  title: string;
+  description: string;
+  hostDisplayName: string;
+  streamCallId: string;
+  status: "live" | "processing" | "available" | "ended";
+  startedAt: string;
+  endedAt?: string;
+  durationSeconds?: number;
+}
+
+interface Recording {
+  _id: string;
+  title: string;
+  description: string;
+  host: string;
+  startedAt: string;
+  endedAt?: string;
+  durationSeconds?: number;
+  playbackUrl: string;
+  thumbnailUrl?: string;
+  tags: string[];
+  coverImage?: string;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const authHeader = () => ({
+  Authorization: `Bearer ${
+    typeof window !== "undefined" ? localStorage.getItem("token") : ""
+  }`,
+  "Content-Type": "application/json",
+});
+
+const fmtDuration = (seconds: number | null | undefined) => {
+  if (!seconds) return "—";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+};
+
+const fmtDate = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+// ─── LiveControls (inner — only rendered when a call is active) ───────────────
+const LiveControls = ({
+  onEnd,
+  isEnding,
+}: {
+  onEnd: () => void;
+  isEnding: boolean;
+}) => {
   const {
     useMicrophoneState,
     useCameraState,
@@ -80,14 +129,13 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
 
   const { microphone, isMute: isMicMuted } = useMicrophoneState();
   const { camera, isMute: isCamOff } = useCameraState();
-  const { screenShare, status: screenShareStatus } = useScreenShareState();
+  const { screenShare, status: ssStatus } = useScreenShareState();
   const participantCount = useParticipantCount();
   const callingState = useCallCallingState();
 
   const [elapsed, setElapsed] = useState(0);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Live duration timer
   useEffect(() => {
     if (callingState === CallingState.JOINED) {
       timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
@@ -97,7 +145,7 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
     };
   }, [callingState]);
 
-  const formatElapsed = (s: number) => {
+  const fmt = (s: number) => {
     const h = Math.floor(s / 3600)
       .toString()
       .padStart(2, "0");
@@ -108,7 +156,7 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
     return h === "00" ? `${m}:${sec}` : `${h}:${m}:${sec}`;
   };
 
-  const isScreenSharing = screenShareStatus === "enabled";
+  const isSS = ssStatus === "enabled";
 
   return (
     <div className="flex flex-col h-full">
@@ -126,9 +174,7 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
         <div className="flex items-center gap-6 text-sm">
           <div className="flex items-center gap-2 text-purple-300">
             <Clock className="w-4 h-4" />
-            <span className="font-mono font-bold">
-              {formatElapsed(elapsed)}
-            </span>
+            <span className="font-mono font-bold">{fmt(elapsed)}</span>
           </div>
           <div className="flex items-center gap-2 text-purple-300">
             <Users className="w-4 h-4" />
@@ -149,7 +195,6 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
 
       {/* Control bar */}
       <div className="flex items-center justify-center gap-4 px-6 py-4 bg-slate-900/80 border-t border-purple-500/30">
-        {/* Mic */}
         <button
           onClick={() =>
             isMicMuted ? microphone.enable() : microphone.disable()
@@ -159,7 +204,7 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
               ? "bg-red-600/30 border-red-500/50 text-red-300"
               : "bg-purple-600/20 border-purple-500/30 text-purple-300 hover:bg-purple-600/30"
           }`}
-          title={isMicMuted ? "Unmute mic" : "Mute mic"}
+          title={isMicMuted ? "Unmute" : "Mute"}
         >
           {isMicMuted ? (
             <MicOff className="w-6 h-6" />
@@ -168,7 +213,6 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
           )}
         </button>
 
-        {/* Camera */}
         <button
           onClick={() => (isCamOff ? camera.enable() : camera.disable())}
           className={`p-4 rounded-full border transition-all duration-300 hover:scale-110 ${
@@ -176,7 +220,7 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
               ? "bg-red-600/30 border-red-500/50 text-red-300"
               : "bg-purple-600/20 border-purple-500/30 text-purple-300 hover:bg-purple-600/30"
           }`}
-          title={isCamOff ? "Turn camera on" : "Turn camera off"}
+          title={isCamOff ? "Camera on" : "Camera off"}
         >
           {isCamOff ? (
             <VideoOff className="w-6 h-6" />
@@ -185,47 +229,156 @@ const LiveControls = ({ call, onEnd }: { call: any; onEnd: () => void }) => {
           )}
         </button>
 
-        {/* Screen share */}
         <button
-          onClick={() =>
-            isScreenSharing ? screenShare.disable() : screenShare.enable()
-          }
+          onClick={() => (isSS ? screenShare.disable() : screenShare.enable())}
           className={`p-4 rounded-full border transition-all duration-300 hover:scale-110 ${
-            isScreenSharing
+            isSS
               ? "bg-blue-600/30 border-blue-500/50 text-blue-300"
               : "bg-purple-600/20 border-purple-500/30 text-purple-300 hover:bg-purple-600/30"
           }`}
-          title={isScreenSharing ? "Stop screen share" : "Share screen"}
+          title={isSS ? "Stop sharing" : "Share screen"}
         >
-          {isScreenSharing ? (
+          {isSS ? (
             <MonitorOff className="w-6 h-6" />
           ) : (
             <MonitorUp className="w-6 h-6" />
           )}
         </button>
 
-        {/* End stream */}
         <button
           onClick={onEnd}
-          className="p-4 rounded-full bg-red-600 hover:bg-red-500 border border-red-400 text-white transition-all duration-300 hover:scale-110 ml-4"
+          disabled={isEnding}
+          className="p-4 rounded-full bg-red-600 hover:bg-red-500 disabled:opacity-50 border border-red-400 text-white transition-all duration-300 hover:scale-110 ml-4 flex items-center gap-2"
           title="End stream"
         >
-          <PhoneOff className="w-6 h-6" />
+          {isEnding ? (
+            <Loader2 className="w-6 h-6 animate-spin" />
+          ) : (
+            <PhoneOff className="w-6 h-6" />
+          )}
         </button>
       </div>
     </div>
   );
 };
 
+// ─── Recording card ───────────────────────────────────────────────────────────
+const RecordingCard = ({
+  rec,
+  onWatch,
+}: {
+  rec: Recording;
+  onWatch: (rec: Recording) => void;
+}) => (
+  <div className="bg-black/30 border border-purple-500/20 rounded-2xl overflow-hidden hover:border-purple-500/50 transition-all duration-300 group">
+    {/* Thumbnail */}
+    <div
+      className="relative aspect-video bg-slate-800 overflow-hidden cursor-pointer"
+      onClick={() => onWatch(rec)}
+    >
+      {rec.thumbnailUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={rec.thumbnailUrl}
+          alt={rec.title}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <Film className="w-12 h-12 text-purple-500/40" />
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+        <div className="w-14 h-14 rounded-full bg-purple-600/80 flex items-center justify-center">
+          <Play className="w-7 h-7 text-white ml-1" />
+        </div>
+      </div>
+      {rec.durationSeconds && (
+        <span className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 rounded text-white text-xs font-mono">
+          {fmtDuration(rec.durationSeconds)}
+        </span>
+      )}
+    </div>
+
+    {/* Info */}
+    <div className="p-4">
+      <p className="text-white font-semibold truncate">{rec.title}</p>
+      <p className="text-purple-400 text-xs mt-1">{rec.host}</p>
+      <p className="text-purple-500 text-xs mt-1">{fmtDate(rec.startedAt)}</p>
+      {rec.description && (
+        <p className="text-purple-300/70 text-xs mt-2 line-clamp-2">
+          {rec.description}
+        </p>
+      )}
+    </div>
+  </div>
+);
+
+// ─── Video modal ──────────────────────────────────────────────────────────────
+const VideoModal = ({
+  rec,
+  onClose,
+}: {
+  rec: Recording;
+  onClose: () => void;
+}) => (
+  <div
+    className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+    onClick={onClose}
+  >
+    <div
+      className="w-full max-w-4xl bg-slate-900 rounded-3xl overflow-hidden border border-purple-500/30 shadow-2xl shadow-purple-500/20"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-center justify-between px-6 py-4 border-b border-purple-500/20">
+        <div>
+          <p className="text-white font-bold text-lg">{rec.title}</p>
+          <p className="text-purple-400 text-sm">
+            {rec.host} · {fmtDate(rec.startedAt)}
+          </p>
+        </div>
+        <button
+          onClick={onClose}
+          className="p-2 hover:bg-purple-500/20 rounded-xl text-purple-300 transition-colors"
+        >
+          <X className="w-5 h-5" />
+        </button>
+      </div>
+
+      <div className="aspect-video bg-black">
+        <video
+          src={rec.playbackUrl}
+          controls
+          autoPlay
+          className="w-full h-full"
+          poster={rec.thumbnailUrl}
+        />
+      </div>
+
+      {rec.description && (
+        <div className="px-6 py-4 border-t border-purple-500/20">
+          <p className="text-purple-300 text-sm">{rec.description}</p>
+        </div>
+      )}
+    </div>
+  </div>
+);
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 const AdminLiveStreamPage = () => {
-  const [programs, setPrograms] = useState<Program[]>([]);
-  const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  // ── Tab state ───────────────────────────────────────────────────────────────
+  const [tab, setTab] = useState<"studio" | "replays">("studio");
+
+  // ── Go-live form ─────────────────────────────────────────────────────────────
+  const [sessionTitle, setSessionTitle] = useState("Live Broadcast");
+  const [sessionDescription, setSessionDescription] = useState("");
+  const [sessionTags, setSessionTags] = useState("");
+
+  // ── Stream state ─────────────────────────────────────────────────────────────
   const [isStarting, setIsStarting] = useState(false);
   const [isEnding, setIsEnding] = useState(false);
-
-  // GetStream state
+  const [isLive, setIsLive] = useState(false);
+  const [activeSession, setActiveSession] = useState<LiveSession | null>(null);
   const [streamCreds, setStreamCreds] = useState<StreamCredentials | null>(
     null,
   );
@@ -233,9 +386,8 @@ const AdminLiveStreamPage = () => {
     null,
   );
   const [activeCall, setActiveCall] = useState<any | null>(null);
-  const [isLive, setIsLive] = useState(false);
 
-  // Chat sidebar
+  // ── Chat sidebar ─────────────────────────────────────────────────────────────
   const [chatOpen, setChatOpen] = useState(true);
   const [chatMessage, setChatMessage] = useState("");
   const [chatMessages, setChatMessages] = useState<
@@ -243,34 +395,14 @@ const AdminLiveStreamPage = () => {
   >([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const authHeader = () => ({
-    Authorization: `Bearer ${localStorage.getItem("token")}`,
-    "Content-Type": "application/json",
-  });
+  // ── Recordings tab ───────────────────────────────────────────────────────────
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [recordingsLoading, setRecordingsLoading] = useState(false);
+  const [watchingRec, setWatchingRec] = useState<Recording | null>(null);
 
-  // ── Fetch programs ──────────────────────────────────────────────────────────
-  const fetchPrograms = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const res = await fetch(`${API_URL}/api/programs`, {
-        headers: authHeader(),
-      });
-      const data = await res.json();
-      setPrograms(data.programs || []);
-    } catch {
-      toast.error("Failed to load programs");
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchPrograms();
-  }, [fetchPrograms]);
-
-  // ── Fetch a GetStream token for this admin user ─────────────────────────────
+  // ── Fetch GetStream token ────────────────────────────────────────────────────
   const fetchStreamToken = useCallback(async () => {
-    if (streamCreds) return streamCreds; // already have one
+    if (streamCreds) return streamCreds;
     const res = await fetch(`${API_URL}/api/stream/token`, {
       method: "POST",
       headers: authHeader(),
@@ -281,54 +413,73 @@ const AdminLiveStreamPage = () => {
     return data as StreamCredentials;
   }, [streamCreds]);
 
-  // ── Go Live ─────────────────────────────────────────────────────────────────
+  // ── Fetch recordings ─────────────────────────────────────────────────────────
+  const fetchRecordings = useCallback(async () => {
+    setRecordingsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/stream/sessions/recordings`, {
+        headers: authHeader(),
+      });
+      const data = await res.json();
+      if (data.success) setRecordings(data.recordings || []);
+    } catch {
+      toast.error("Failed to load recordings");
+    } finally {
+      setRecordingsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "replays") fetchRecordings();
+  }, [tab, fetchRecordings]);
+
+  // ── Go Live ──────────────────────────────────────────────────────────────────
   const handleGoLive = async () => {
-    if (!selectedProgram) {
-      toast.error("Please select a program first");
+    if (!sessionTitle.trim()) {
+      toast.error("Please enter a session title");
       return;
     }
 
     setIsStarting(true);
     try {
-      // 1. Get / refresh stream token
+      // 1. Get stream token
       const creds = await fetchStreamToken();
 
-      // 2. Ask backend to create (or reuse) the GetStream call
-      const callRes = await fetch(
-        `${API_URL}/api/stream/call/${selectedProgram._id}`,
-        { method: "POST", headers: authHeader() },
-      );
-      const callData = await callRes.json();
-      if (!callData.success) throw new Error(callData.message);
+      // 2. Create the session on the backend (no program required)
+      const sessionRes = await fetch(`${API_URL}/api/stream/session/start`, {
+        method: "POST",
+        headers: authHeader(),
+        body: JSON.stringify({
+          title: sessionTitle.trim(),
+          description: sessionDescription.trim(),
+          tags: sessionTags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+        }),
+      });
+      const sessionData = await sessionRes.json();
+      if (!sessionData.success) throw new Error(sessionData.message);
 
-      // 3. Build the StreamVideoClient on the frontend
+      // 3. Build StreamVideoClient
       const client = new StreamVideoClient({
         apiKey: creds.apiKey,
         user: { id: creds.streamUserId, name: creds.displayName },
         token: creds.token,
       });
 
-      // 4. Get the call reference and join
-      const call = client.call("livestream", callData.call.callId);
+      // 4. Join the call
+      const call = client.call("livestream", sessionData.session.callId);
       await call.join({ create: false });
       await call.camera.enable();
       await call.microphone.enable();
 
       setVideoClient(client);
       setActiveCall(call);
+      setActiveSession(sessionData.session);
       setIsLive(true);
 
-      // Update local program state
-      setPrograms((prev) =>
-        prev.map((p) =>
-          p._id === selectedProgram._id
-            ? { ...p, isLive: true, status: "live" }
-            : p,
-        ),
-      );
-      setSelectedProgram((p) => p && { ...p, isLive: true, status: "live" });
-
-      toast.success(`🔴 You are now live: ${selectedProgram.title}`);
+      toast.success(`🔴 You are now live: ${sessionTitle}`);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Failed to go live");
@@ -337,40 +488,29 @@ const AdminLiveStreamPage = () => {
     }
   };
 
-  // ── End Stream ──────────────────────────────────────────────────────────────
+  // ── End Stream ───────────────────────────────────────────────────────────────
   const handleEndStream = async () => {
-    if (!selectedProgram || !activeCall) return;
+    if (!activeSession || !activeCall) return;
     setIsEnding(true);
     try {
-      // Leave the call on the client side
       await activeCall.leave();
 
-      // Tell the backend to end it (stops recording, marks program offline)
-      await fetch(`${API_URL}/api/stream/call/${selectedProgram._id}/end`, {
+      await fetch(`${API_URL}/api/stream/session/${activeSession._id}/end`, {
         method: "POST",
         headers: authHeader(),
       });
 
-      // Disconnect the video client
       await videoClient?.disconnectUser();
 
       setVideoClient(null);
       setActiveCall(null);
+      setActiveSession(null);
       setIsLive(false);
       setStreamCreds(null);
 
-      setPrograms((prev) =>
-        prev.map((p) =>
-          p._id === selectedProgram._id
-            ? { ...p, isLive: false, status: "completed" }
-            : p,
-        ),
+      toast.success(
+        "Stream ended. Recording is being processed and will appear in Replays shortly.",
       );
-      setSelectedProgram(
-        (p) => p && { ...p, isLive: false, status: "completed" },
-      );
-
-      toast.success("Stream ended. Recording is being processed.");
     } catch (err: any) {
       toast.error(err.message || "Failed to end stream");
     } finally {
@@ -378,7 +518,7 @@ const AdminLiveStreamPage = () => {
     }
   };
 
-  // ── Simulate chat (GetStream chat SDK can be wired here) ────────────────────
+  // ── Chat ─────────────────────────────────────────────────────────────────────
   const sendChatMessage = () => {
     if (!chatMessage.trim()) return;
     setChatMessages((prev) => [
@@ -400,7 +540,7 @@ const AdminLiveStreamPage = () => {
     );
   };
 
-  // ── Cleanup on unmount ──────────────────────────────────────────────────────
+  // ── Cleanup on unmount ───────────────────────────────────────────────────────
   useEffect(() => {
     return () => {
       if (activeCall) activeCall.leave().catch(() => {});
@@ -408,232 +548,304 @@ const AdminLiveStreamPage = () => {
     };
   }, [activeCall, videoClient]);
 
-  // ─── Render ─────────────────────────────────────────────────────────────────
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-linear-to-br from-slate-950 via-purple-950 to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-purple-300 text-lg font-semibold">
-            Loading programs...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  // ─── Render ──────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-purple-950 to-slate-900 flex flex-col">
-      {/* ── Page header ────────────────────────────────────────────────────── */}
-      <header className="px-8 py-5 border-b border-purple-500/20 flex items-center justify-between">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 flex flex-col">
+      {/* ── Page header ──────────────────────────────────────────────────────── */}
+      <header className="px-8 py-5 border-b border-purple-500/20 flex items-center justify-between shrink-0">
         <div>
-          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-linear-to-r from-purple-400 via-pink-400 to-purple-400">
+          <h1 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400">
             Presenter Studio
           </h1>
           <p className="text-purple-400 text-sm mt-1">
-            Go live • Chat with your audience • Auto-recording enabled
+            Go live instantly · Auto-recording · Replay on demand
           </p>
         </div>
-        <button
-          onClick={fetchPrograms}
-          className="p-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 transition-all"
-        >
-          <RefreshCw className="w-5 h-5" />
-        </button>
+
+        {/* Tabs */}
+        <div className="flex items-center gap-2 bg-black/30 p-1.5 rounded-2xl border border-purple-500/20">
+          <button
+            onClick={() => setTab("studio")}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${
+              tab === "studio"
+                ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                : "text-purple-400 hover:text-white"
+            }`}
+          >
+            <Tv2 className="w-4 h-4" />
+            Studio
+          </button>
+          <button
+            onClick={() => setTab("replays")}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 ${
+              tab === "replays"
+                ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                : "text-purple-400 hover:text-white"
+            }`}
+          >
+            <Film className="w-4 h-4" />
+            Replays
+          </button>
+        </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* ── Left panel — program picker + go-live button ────────────────── */}
-        {!isLive && (
-          <aside className="w-96 border-r border-purple-500/20 flex flex-col p-6 gap-6 overflow-y-auto">
-            <div>
-              <h2 className="text-white font-bold text-lg mb-4">
-                Select a Program to Broadcast
-              </h2>
-
-              {programs.length === 0 ? (
+      {/* ── Studio tab ───────────────────────────────────────────────────────── */}
+      {tab === "studio" && (
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left panel — go-live form (hidden when live) */}
+          {!isLive && (
+            <aside className="w-96 border-r border-purple-500/20 flex flex-col p-6 gap-5 overflow-y-auto shrink-0">
+              <div>
+                <h2 className="text-white font-black text-xl mb-1">
+                  Start a Broadcast
+                </h2>
                 <p className="text-purple-400 text-sm">
-                  No programs found. Create one first.
+                  Go live instantly — no program required.
                 </p>
-              ) : (
-                <div className="space-y-3">
-                  {programs.map((program) => (
-                    <button
-                      key={program._id}
-                      onClick={() => setSelectedProgram(program)}
-                      className={`w-full text-left p-4 rounded-2xl border transition-all duration-300 ${
-                        selectedProgram?._id === program._id
-                          ? "border-purple-500/70 bg-purple-500/15 ring-2 ring-purple-500/40"
-                          : "border-purple-500/20 bg-black/20 hover:border-purple-500/40"
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-white font-semibold truncate">
-                            {program.title}
-                          </p>
-                          <p className="text-purple-400 text-sm mt-0.5">
-                            {program.host}
-                          </p>
-                        </div>
-                        {program.isLive && (
-                          <span className="shrink-0 flex items-center gap-1 px-2 py-0.5 bg-green-500/20 border border-green-500/30 rounded-full text-green-400 text-xs font-bold">
-                            <Signal className="w-3 h-3" /> LIVE
-                          </span>
-                        )}
-                      </div>
-                      <span className="inline-block mt-2 px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 rounded-full text-purple-300 text-xs">
-                        {program.category}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+              </div>
 
-            {/* Go Live button */}
-            {selectedProgram && (
+              {/* Title */}
+              <div className="space-y-1.5">
+                <label className="text-purple-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <Tv2 className="w-3.5 h-3.5" />
+                  Session Title
+                </label>
+                <input
+                  value={sessionTitle}
+                  onChange={(e) => setSessionTitle(e.target.value)}
+                  placeholder="e.g. Morning Drive Show"
+                  className="w-full px-4 py-3 bg-black/30 border border-purple-500/30 rounded-xl text-white placeholder-purple-500/60 focus:outline-none focus:border-purple-500/60 transition-colors"
+                />
+              </div>
+
+              {/* Description */}
+              <div className="space-y-1.5">
+                <label className="text-purple-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <AlignLeft className="w-3.5 h-3.5" />
+                  Description{" "}
+                  <span className="text-purple-500 normal-case font-normal">
+                    (optional)
+                  </span>
+                </label>
+                <textarea
+                  value={sessionDescription}
+                  onChange={(e) => setSessionDescription(e.target.value)}
+                  placeholder="What's this broadcast about?"
+                  rows={3}
+                  className="w-full px-4 py-3 bg-black/30 border border-purple-500/30 rounded-xl text-white placeholder-purple-500/60 focus:outline-none focus:border-purple-500/60 transition-colors resize-none"
+                />
+              </div>
+
+              {/* Tags */}
+              <div className="space-y-1.5">
+                <label className="text-purple-300 text-xs font-bold uppercase tracking-wider flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5" />
+                  Tags{" "}
+                  <span className="text-purple-500 normal-case font-normal">
+                    (comma-separated)
+                  </span>
+                </label>
+                <input
+                  value={sessionTags}
+                  onChange={(e) => setSessionTags(e.target.value)}
+                  placeholder="music, talk-show, live"
+                  className="w-full px-4 py-3 bg-black/30 border border-purple-500/30 rounded-xl text-white placeholder-purple-500/60 focus:outline-none focus:border-purple-500/60 transition-colors"
+                />
+              </div>
+
+              {/* Recording notice */}
+              <div className="flex items-start gap-3 p-3 bg-purple-500/10 border border-purple-500/20 rounded-xl">
+                <Signal className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
+                <p className="text-purple-300 text-xs leading-relaxed">
+                  Your broadcast will be <strong>automatically recorded</strong>{" "}
+                  and saved to Cloudinary. It will appear in the{" "}
+                  <strong>Replays</strong> tab once processing is complete.
+                </p>
+              </div>
+
+              {/* Go Live button */}
               <div className="mt-auto">
-                <div className="p-4 bg-black/30 rounded-2xl border border-purple-500/20 mb-4">
-                  <p className="text-purple-300 text-xs font-semibold mb-1">
-                    SELECTED PROGRAM
-                  </p>
-                  <p className="text-white font-bold">
-                    {selectedProgram.title}
-                  </p>
-                  <p className="text-purple-400 text-sm">
-                    {selectedProgram.host}
-                  </p>
-                </div>
-
                 <button
                   onClick={handleGoLive}
-                  disabled={isStarting || selectedProgram.isLive}
-                  className="w-full py-4 bg-linear-to-br from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-2xl text-white font-black text-lg flex items-center justify-center gap-3 shadow-2xl shadow-red-500/30 transition-all duration-300 hover:scale-105"
+                  disabled={isStarting || !sessionTitle.trim()}
+                  className="w-full py-4 bg-gradient-to-br from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-2xl text-white font-black text-lg flex items-center justify-center gap-3 shadow-2xl shadow-red-500/30 transition-all duration-300 hover:scale-105"
                 >
                   {isStarting ? (
                     <>
-                      <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <Loader2 className="w-5 h-5 animate-spin" />
                       Going Live…
-                    </>
-                  ) : selectedProgram.isLive ? (
-                    <>
-                      <Signal className="w-6 h-6" /> Already Live
                     </>
                   ) : (
                     <>
-                      <Radio className="w-6 h-6" /> Go Live
+                      <Radio className="w-6 h-6" />
+                      Go Live
                     </>
                   )}
                 </button>
               </div>
-            )}
-          </aside>
-        )}
+            </aside>
+          )}
 
-        {/* ── Main area — video when live, placeholder when not ───────────── */}
-        <main className="flex-1 flex overflow-hidden">
-          {isLive && videoClient && activeCall ? (
-            <StreamVideo client={videoClient}>
-              <StreamCall call={activeCall}>
-                <div className="flex flex-1 overflow-hidden">
-                  {/* Video + controls */}
-                  <div className="flex-1 flex flex-col">
-                    <LiveControls call={activeCall} onEnd={handleEndStream} />
-                  </div>
+          {/* Main area */}
+          <main className="flex-1 flex overflow-hidden">
+            {isLive && videoClient && activeCall ? (
+              <StreamVideo client={videoClient}>
+                <StreamCall call={activeCall}>
+                  <div className="flex flex-1 overflow-hidden">
+                    {/* Video + controls */}
+                    <div className="flex-1 flex flex-col">
+                      <LiveControls
+                        onEnd={handleEndStream}
+                        isEnding={isEnding}
+                      />
+                    </div>
 
-                  {/* Chat sidebar */}
-                  {chatOpen && (
-                    <aside className="w-80 border-l border-purple-500/20 flex flex-col bg-slate-900/60">
-                      <div className="px-4 py-3 border-b border-purple-500/20 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-purple-300 font-bold">
-                          <MessageSquare className="w-5 h-5" />
-                          Live Chat
-                        </div>
-                        <button
-                          onClick={() => setChatOpen(false)}
-                          className="text-purple-400 hover:text-white transition-colors"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      {/* Messages */}
-                      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                        {chatMessages.length === 0 && (
-                          <p className="text-purple-500 text-sm text-center mt-8">
-                            No messages yet. Start the conversation!
-                          </p>
-                        )}
-                        {chatMessages.map((msg) => (
-                          <div key={msg.id}>
-                            <span className="text-purple-300 text-xs font-bold">
-                              {msg.user}
-                            </span>
-                            <span className="text-purple-500 text-xs ml-2">
-                              {msg.time}
-                            </span>
-                            <p className="text-white text-sm mt-0.5">
-                              {msg.text}
-                            </p>
+                    {/* Chat sidebar */}
+                    {chatOpen && (
+                      <aside className="w-80 border-l border-purple-500/20 flex flex-col bg-slate-900/60 shrink-0">
+                        <div className="px-4 py-3 border-b border-purple-500/20 flex items-center justify-between">
+                          <div className="flex items-center gap-2 text-purple-300 font-bold">
+                            <MessageSquare className="w-5 h-5" />
+                            Live Chat
                           </div>
-                        ))}
-                        <div ref={chatEndRef} />
-                      </div>
+                          <button
+                            onClick={() => setChatOpen(false)}
+                            className="text-purple-400 hover:text-white transition-colors"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
 
-                      {/* Message input */}
-                      <div className="p-3 border-t border-purple-500/20 flex gap-2">
-                        <input
-                          value={chatMessage}
-                          onChange={(e) => setChatMessage(e.target.value)}
-                          onKeyDown={(e) =>
-                            e.key === "Enter" && sendChatMessage()
-                          }
-                          placeholder="Send a message…"
-                          className="flex-1 px-3 py-2 bg-black/30 border border-purple-500/30 rounded-xl text-white text-sm placeholder-purple-500 focus:outline-none focus:border-purple-500/60"
-                        />
-                        <button
-                          onClick={sendChatMessage}
-                          className="p-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white transition-all"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </aside>
-                  )}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                          {chatMessages.length === 0 && (
+                            <p className="text-purple-500 text-sm text-center mt-8">
+                              No messages yet. Start the conversation!
+                            </p>
+                          )}
+                          {chatMessages.map((msg) => (
+                            <div key={msg.id}>
+                              <span className="text-purple-300 text-xs font-bold">
+                                {msg.user}
+                              </span>
+                              <span className="text-purple-500 text-xs ml-2">
+                                {msg.time}
+                              </span>
+                              <p className="text-white text-sm mt-0.5">
+                                {msg.text}
+                              </p>
+                            </div>
+                          ))}
+                          <div ref={chatEndRef} />
+                        </div>
 
-                  {/* Chat toggle when closed */}
-                  {!chatOpen && (
-                    <button
-                      onClick={() => setChatOpen(true)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 hover:bg-purple-600/40 transition-all"
-                    >
-                      <MessageSquare className="w-5 h-5" />
-                    </button>
-                  )}
+                        <div className="p-3 border-t border-purple-500/20 flex gap-2">
+                          <input
+                            value={chatMessage}
+                            onChange={(e) => setChatMessage(e.target.value)}
+                            onKeyDown={(e) =>
+                              e.key === "Enter" && sendChatMessage()
+                            }
+                            placeholder="Send a message…"
+                            className="flex-1 px-3 py-2 bg-black/30 border border-purple-500/30 rounded-xl text-white text-sm placeholder-purple-500 focus:outline-none focus:border-purple-500/60"
+                          />
+                          <button
+                            onClick={sendChatMessage}
+                            className="p-2 bg-purple-600 hover:bg-purple-500 rounded-xl text-white transition-all"
+                          >
+                            <Send className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </aside>
+                    )}
+
+                    {!chatOpen && (
+                      <button
+                        onClick={() => setChatOpen(true)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 p-3 bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 hover:bg-purple-600/40 transition-all"
+                      >
+                        <MessageSquare className="w-5 h-5" />
+                      </button>
+                    )}
+                  </div>
+                </StreamCall>
+              </StreamVideo>
+            ) : (
+              /* Placeholder when not live */
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center max-w-sm">
+                  <div className="w-24 h-24 bg-purple-600/20 border border-purple-500/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Radio className="w-12 h-12 text-purple-400" />
+                  </div>
+                  <h2 className="text-2xl font-black text-white mb-3">
+                    Ready to Broadcast?
+                  </h2>
+                  <p className="text-purple-400 text-sm">
+                    Fill in the session details on the left, then click{" "}
+                    <strong className="text-purple-300">Go Live</strong>.
+                  </p>
                 </div>
-              </StreamCall>
-            </StreamVideo>
-          ) : (
-            /* ─ Placeholder when not live ─ */
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center max-w-sm">
-                <div className="w-24 h-24 bg-purple-600/20 border border-purple-500/30 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <Radio className="w-12 h-12 text-purple-400" />
-                </div>
-                <h2 className="text-2xl font-black text-white mb-3">
-                  Ready to Broadcast?
-                </h2>
-                <p className="text-purple-400 text-sm">
-                  {programs.length === 0
-                    ? "Create a program first, then come back here to go live."
-                    : "Select a program from the left panel, then click Go Live."}
-                </p>
+              </div>
+            )}
+          </main>
+        </div>
+      )}
+
+      {/* ── Replays tab ──────────────────────────────────────────────────────── */}
+      {tab === "replays" && (
+        <div className="flex-1 overflow-y-auto p-8">
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h2 className="text-white font-black text-2xl">
+                Past Recordings
+              </h2>
+              <p className="text-purple-400 text-sm mt-1">
+                All sessions are recorded automatically and stored on
+                Cloudinary.
+              </p>
+            </div>
+            <button
+              onClick={fetchRecordings}
+              className="p-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 transition-all"
+              title="Refresh"
+            >
+              <RefreshCw className="w-5 h-5" />
+            </button>
+          </div>
+
+          {recordingsLoading ? (
+            <div className="flex items-center justify-center py-24">
+              <div className="text-center">
+                <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                <p className="text-purple-300">Loading recordings…</p>
               </div>
             </div>
+          ) : recordings.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-24 text-center">
+              <Film className="w-16 h-16 text-purple-500/30 mb-4" />
+              <p className="text-white font-bold text-lg">No recordings yet</p>
+              <p className="text-purple-400 text-sm mt-1 max-w-xs">
+                Go live in the Studio tab. Once you end a session, the recording
+                will appear here after processing.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {recordings.map((rec) => (
+                <RecordingCard
+                  key={rec._id}
+                  rec={rec}
+                  onWatch={setWatchingRec}
+                />
+              ))}
+            </div>
           )}
-        </main>
-      </div>
+        </div>
+      )}
+
+      {/* ── Video modal ───────────────────────────────────────────────────────── */}
+      {watchingRec && (
+        <VideoModal rec={watchingRec} onClose={() => setWatchingRec(null)} />
+      )}
     </div>
   );
 };

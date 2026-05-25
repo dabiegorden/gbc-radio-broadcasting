@@ -18,7 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Import routes
-import streamRoutes from "./routes/Streamroutes.js";
+import streamRoutes from "./routes/streamRoutes.js"; // ← new session-based routes
 import authRoutes from "./routes/auth.js";
 import userRoutes from "./routes/users.js";
 import programRoutes from "./routes/programs.js";
@@ -60,15 +60,15 @@ app.use((req, res, next) => {
   next();
 });
 
-// Routes
+// ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/programs", programRoutes);
 app.use("/api/engagement", engagementRoutes);
 app.use("/api/analytics", analyticsRoutes);
-app.use("/api/streaming", streamingRoutes);
+app.use("/api/streaming", streamingRoutes); // legacy radio streaming helpers
 app.use("/api/meetings", meetingRoutes);
-app.use("/api/stream", streamRoutes);
+app.use("/api/stream", streamRoutes); // ← new GetStream + LiveSession routes
 
 // Health check route
 app.get("/api/health", (req, res) => {
@@ -79,18 +79,26 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-// Socket IO Events
+// ── Socket.IO events ──────────────────────────────────────────────────────────
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
 
-  // Listen for engagement updates
   socket.on("engagement-update", (data) => {
     io.emit("engagement-update", data);
   });
 
-  // Listen for stream status
   socket.on("stream-status", (status) => {
     io.emit("stream-status", status);
+  });
+
+  // New session-level events
+  socket.on("join-session", ({ sessionId }) => {
+    socket.join(`session-${sessionId}`);
+    console.log(`Socket ${socket.id} joined room session-${sessionId}`);
+  });
+
+  socket.on("leave-session", ({ sessionId }) => {
+    socket.leave(`session-${sessionId}`);
   });
 
   socket.on("disconnect", () => {
@@ -98,7 +106,7 @@ io.on("connection", (socket) => {
   });
 });
 
-// Error handling middleware
+// ── Error handling ────────────────────────────────────────────────────────────
 app.use((err, req, res, next) => {
   console.error("Error:", err);
   res.status(err.status || 500).json({
@@ -119,7 +127,7 @@ app.use((req, res) => {
   });
 });
 
-// Start server
+// ── Start server ──────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
