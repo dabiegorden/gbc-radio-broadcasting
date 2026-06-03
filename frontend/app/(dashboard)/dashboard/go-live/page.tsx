@@ -403,7 +403,7 @@ const AdminLiveStreamPage = () => {
   // ── Fetch GetStream token ────────────────────────────────────────────────────
   const fetchStreamToken = useCallback(async () => {
     if (streamCreds) return streamCreds;
-    const res = await fetch(`${API_URL}/api/stream/token`, {
+    const res = await fetch(`${API_URL}/stream/token`, {
       method: "POST",
       headers: authHeader(),
     });
