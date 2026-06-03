@@ -417,7 +417,7 @@ const AdminLiveStreamPage = () => {
   const fetchRecordings = useCallback(async () => {
     setRecordingsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/stream/sessions/recordings`, {
+      const res = await fetch(`${API_URL}/stream/sessions/recordings`, {
         headers: authHeader(),
       });
       const data = await res.json();
@@ -446,7 +446,7 @@ const AdminLiveStreamPage = () => {
       const creds = await fetchStreamToken();
 
       // 2. Create the session on the backend (no program required)
-      const sessionRes = await fetch(`${API_URL}/api/stream/session/start`, {
+      const sessionRes = await fetch(`${API_URL}/stream/session/start`, {
         method: "POST",
         headers: authHeader(),
         body: JSON.stringify({
@@ -495,7 +495,7 @@ const AdminLiveStreamPage = () => {
     try {
       await activeCall.leave();
 
-      await fetch(`${API_URL}/api/stream/session/${activeSession._id}/end`, {
+      await fetch(`${API_URL}/stream/session/${activeSession._id}/end`, {
         method: "POST",
         headers: authHeader(),
       });

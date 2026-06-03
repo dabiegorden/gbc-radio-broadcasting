@@ -10,11 +10,11 @@
  *     for any linked Program when a live session is selected
  *
  * Routes consumed:
- *   GET  /api/stream/sessions/live          → live sessions
- *   GET  /api/stream/sessions/recordings    → past recordings
+ *   GET  /stream/sessions/live          → live sessions
+ *   GET  /stream/sessions/recordings    → past recordings
  *   GET  /api/stream/token                  → GetStream viewer token
- *   POST /api/engagement                    → comments / likes / shares
- *   GET  /api/engagement/program/:id        → fetch comments
+ *   POST /engagement                    → comments / likes / shares
+ *   GET  /engagement/program/:id        → fetch comments
  */
 
 import { useEffect, useState, useRef, useCallback } from "react";
@@ -429,7 +429,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
   const fetchEngagements = useCallback(async () => {
     try {
       const res = await fetch(
-        `${API_URL}/api/engagement/program/${programId}?limit=50`,
+        `${API_URL}/engagement/program/${programId}?limit=50`,
       );
       const data = await res.json();
       setEngagements(data.engagements || []);
@@ -458,7 +458,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
   }, [engagements, showComments]);
 
   const postEngagement = async (type: string, extra?: object) => {
-    const res = await fetch(`${API_URL}/api/engagement`, {
+    const res = await fetch(`${API_URL}/engagement`, {
       method: "POST",
       headers: authHeader(),
       body: JSON.stringify({
@@ -657,7 +657,7 @@ const LiveStreamUsersPage = () => {
   // ── Fetch live sessions ───────────────────────────────────────────────────
   const fetchLive = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/stream/sessions/live`);
+      const res = await fetch(`${API_URL}/stream/sessions/live`);
       const data = await res.json();
       if (data.success) setLiveSessions(data.sessions || []);
     } catch {
@@ -669,7 +669,7 @@ const LiveStreamUsersPage = () => {
   const fetchRecordings = useCallback(async () => {
     setIsLoadingReplays(true);
     try {
-      const res = await fetch(`${API_URL}/api/stream/sessions/recordings`);
+      const res = await fetch(`${API_URL}/stream/sessions/recordings`);
       const data = await res.json();
       if (data.success) setRecordings(data.recordings || []);
     } catch {

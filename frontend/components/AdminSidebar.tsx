@@ -50,7 +50,7 @@ const AdminSidebar = () => {
           return;
         }
 
-        const response = await fetch(`${API_URL}/api/auth/me`, {
+        const response = await fetch(`${API_URL}/auth/me`, {
           method: "GET",
           headers: {
             "Content-Type": "application/json",

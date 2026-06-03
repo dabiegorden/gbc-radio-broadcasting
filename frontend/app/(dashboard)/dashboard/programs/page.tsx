@@ -280,7 +280,7 @@ const StatsPanel = ({
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(
-        `${API_URL}/api/programs/${programId}/social-streams/${stream.platform}/refresh-stats`,
+        `${API_URL}/programs/${programId}/social-streams/${stream.platform}/refresh-stats`,
         { method: "POST", headers: { Authorization: `Bearer ${token}` } },
       );
       if (res.ok) {
@@ -1086,7 +1086,7 @@ const AdminProgramsPage = () => {
   const fetchPrograms = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/programs?withStats=true`, {
+      const res = await fetch(`${API_URL}/programs?withStats=true`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -1133,7 +1133,7 @@ const AdminProgramsPage = () => {
     e.preventDefault();
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/programs`, {
+      const res = await fetch(`${API_URL}/programs`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1166,23 +1166,20 @@ const AdminProgramsPage = () => {
     if (!selectedProgram) return;
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/api/programs/${selectedProgram._id}`,
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({
-            ...formData,
-            tags: formData.tags
-              .split(",")
-              .map((t) => t.trim())
-              .filter(Boolean),
-          }),
+      const res = await fetch(`${API_URL}/programs/${selectedProgram._id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify({
+          ...formData,
+          tags: formData.tags
+            .split(",")
+            .map((t) => t.trim())
+            .filter(Boolean),
+        }),
+      });
       if (res.ok) {
         toast.success("Program updated");
         setShowEditModal(false);
@@ -1202,7 +1199,7 @@ const AdminProgramsPage = () => {
     if (!confirm("Delete this program?")) return;
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/programs/${id}`, {
+      const res = await fetch(`${API_URL}/programs/${id}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1221,7 +1218,7 @@ const AdminProgramsPage = () => {
   const toggleLiveStatus = async (id: string, current: boolean) => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/api/programs/${id}/live`, {
+      const res = await fetch(`${API_URL}/programs/${id}/live`, {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",

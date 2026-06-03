@@ -47,7 +47,7 @@ const MyMeetingsPage = () => {
         return;
       }
 
-      const res = await fetch(`${API_URL}/api/meetings/my-meetings`, {
+      const res = await fetch(`${API_URL}/meetings/my-meetings`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },

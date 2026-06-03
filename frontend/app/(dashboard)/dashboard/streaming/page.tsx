@@ -109,7 +109,7 @@ const AdminStreamingPage = () => {
   const fetchLiveStreams = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/programs?isLive=true`, {
+      const response = await fetch(`${API_URL}/programs?isLive=true`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -131,7 +131,7 @@ const AdminStreamingPage = () => {
   const fetchMetrics = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/streaming/health/metrics`, {
+      const response = await fetch(`${API_URL}/streaming/health/metrics`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -185,7 +185,7 @@ const AdminStreamingPage = () => {
     // Notify server of listener leaving current program
     if (currentProgram) {
       try {
-        await fetch(`${API_URL}/api/streaming/${currentProgram._id}/leave`, {
+        await fetch(`${API_URL}/streaming/${currentProgram._id}/leave`, {
           method: "POST",
         });
       } catch (error) {
@@ -217,7 +217,7 @@ const AdminStreamingPage = () => {
         setIsPlaying(false);
 
         // Notify server of listener leaving
-        await fetch(`${API_URL}/api/streaming/${currentProgram._id}/leave`, {
+        await fetch(`${API_URL}/streaming/${currentProgram._id}/leave`, {
           method: "POST",
         });
       } else {
@@ -233,7 +233,7 @@ const AdminStreamingPage = () => {
         setIsPlaying(true);
 
         // Notify server of listener joining
-        await fetch(`${API_URL}/api/streaming/${currentProgram._id}/join`, {
+        await fetch(`${API_URL}/streaming/${currentProgram._id}/join`, {
           method: "POST",
         });
 

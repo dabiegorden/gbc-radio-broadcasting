@@ -120,7 +120,7 @@ const AdminUsersPage = () => {
   const fetchUsers = async () => {
     try {
       const token = localStorage.getItem("token");
-      let url = `${API_URL}/api/users?limit=100&sortBy=${sortBy}&order=${sortOrder}`;
+      let url = `${API_URL}/users?limit=100&sortBy=${sortBy}&order=${sortOrder}`;
 
       if (searchTerm) url += `&search=${searchTerm}`;
       if (selectedRole) url += `&role=${selectedRole}`;
@@ -146,7 +146,7 @@ const AdminUsersPage = () => {
   const fetchStats = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/users/stats`, {
+      const response = await fetch(`${API_URL}/users/stats`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -231,8 +231,8 @@ const AdminUsersPage = () => {
       }
 
       const url = isEditMode
-        ? `${API_URL}/api/users/${currentUser?._id}`
-        : `${API_URL}/api/users`;
+        ? `${API_URL}/users/${currentUser?._id}`
+        : `${API_URL}/users`;
 
       const method = isEditMode ? "PUT" : "POST";
 
@@ -269,7 +269,7 @@ const AdminUsersPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/users/${id}`, {
+      const response = await fetch(`${API_URL}/users/${id}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -295,7 +295,7 @@ const AdminUsersPage = () => {
   const handleToggleActive = async (id: string, currentStatus: boolean) => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/users/${id}/toggle-active`, {
+      const response = await fetch(`${API_URL}/users/${id}/toggle-active`, {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,

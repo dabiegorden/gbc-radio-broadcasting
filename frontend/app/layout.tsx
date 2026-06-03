@@ -16,7 +16,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "GBC - Radio Broadcasting analysis",
-  description: "A full-stack radio predictive analysis",
+  description:
+    "A tool for analyzing radio broadcasting data, providing insights and visualizations to help broadcasters optimize their content and reach their audience effectively.",
 };
 
 export default function RootLayout({

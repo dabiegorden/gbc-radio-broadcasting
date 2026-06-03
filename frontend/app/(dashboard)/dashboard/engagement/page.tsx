@@ -146,7 +146,7 @@ const AdminEngagementPage = () => {
   const fetchPrograms = async () => {
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/programs`, {
+      const response = await fetch(`${API_URL}/programs`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -165,7 +165,7 @@ const AdminEngagementPage = () => {
   const fetchEngagements = async () => {
     try {
       const token = localStorage.getItem("token");
-      let url = `${API_URL}/api/engagement?limit=100`;
+      let url = `${API_URL}/engagement?limit=100`;
 
       if (selectedProgram) {
         url += `&programId=${selectedProgram}`;
@@ -191,9 +191,7 @@ const AdminEngagementPage = () => {
   // Fetch stats
   const fetchStats = async (programId: string) => {
     try {
-      const response = await fetch(
-        `${API_URL}/api/engagement/stats/${programId}`,
-      );
+      const response = await fetch(`${API_URL}/engagement/stats/${programId}`);
 
       if (response.ok) {
         const data = await response.json();
@@ -264,7 +262,7 @@ const AdminEngagementPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/engagement`, {
+      const response = await fetch(`${API_URL}/engagement`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -303,7 +301,7 @@ const AdminEngagementPage = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${API_URL}/api/engagement/${selectedEngagement._id}`,
+        `${API_URL}/engagement/${selectedEngagement._id}`,
         {
           method: "PUT",
           headers: {
@@ -338,7 +336,7 @@ const AdminEngagementPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/engagement/${id}`, {
+      const response = await fetch(`${API_URL}/engagement/${id}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
@@ -373,7 +371,7 @@ const AdminEngagementPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/engagement/analyze-batch`, {
+      const response = await fetch(`${API_URL}/engagement/analyze-batch`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

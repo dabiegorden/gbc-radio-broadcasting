@@ -57,7 +57,7 @@ const LandingPage = () => {
           }
 
           // Fetch fresh user data from API
-          const response = await fetch(`${API_URL}/api/auth/me`, {
+          const response = await fetch(`${API_URL}/auth/me`, {
             headers: {
               Authorization: `Bearer ${token}`,
             },

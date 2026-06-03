@@ -92,7 +92,7 @@ const AdminAnalyticsPage = () => {
   const fetchAnalytics = async () => {
     try {
       const token = localStorage.getItem("token");
-      let url = `${API_URL}/api/analytics/dashboard`;
+      let url = `${API_URL}/analytics/dashboard`;
 
       const params = new URLSearchParams();
       if (dateRange.startDate) params.append("startDate", dateRange.startDate);
@@ -121,7 +121,7 @@ const AdminAnalyticsPage = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${API_URL}/api/analytics/trends?days=${trendPeriod}`,
+        `${API_URL}/analytics/trends?days=${trendPeriod}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -143,7 +143,7 @@ const AdminAnalyticsPage = () => {
     setIsDownloading(true);
     try {
       const token = localStorage.getItem("token");
-      let url = `${API_URL}/api/analytics/report/pdf`;
+      let url = `${API_URL}/analytics/report/pdf`;
 
       const params = new URLSearchParams();
       if (dateRange.startDate) params.append("startDate", dateRange.startDate);

@@ -107,10 +107,10 @@ const AdminScheduleMeetingsPage = () => {
     try {
       const token = localStorage.getItem("token");
       const [meetingsRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/api/meetings`, {
+        fetch(`${API_URL}/meetings`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        fetch(`${API_URL}/api/meetings/stats`, {
+        fetch(`${API_URL}/meetings/stats`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
       ]);
@@ -226,7 +226,7 @@ const AdminScheduleMeetingsPage = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `${API_URL}/api/meetings/${selectedMeeting._id}`,
+        `${API_URL}/meetings/${selectedMeeting._id}`,
         {
           method: "PUT",
           headers: {
@@ -258,7 +258,7 @@ const AdminScheduleMeetingsPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/meetings/${meetingId}`, {
+      const response = await fetch(`${API_URL}/meetings/${meetingId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -282,13 +282,10 @@ const AdminScheduleMeetingsPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(
-        `${API_URL}/api/meetings/${meetingId}/cancel`,
-        {
-          method: "PATCH",
-          headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+      const response = await fetch(`${API_URL}/meetings/${meetingId}/cancel`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       if (response.ok) {
         toast.success("Meeting cancelled successfully");

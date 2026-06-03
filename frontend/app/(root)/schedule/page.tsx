@@ -112,7 +112,7 @@ const ScheduleMeetingPage = () => {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`${API_URL}/api/meetings`, {
+      const response = await fetch(`${API_URL}/meetings`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

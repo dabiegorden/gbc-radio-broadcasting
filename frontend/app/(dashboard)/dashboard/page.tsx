@@ -62,7 +62,7 @@ const AdminDashboardHomePage = () => {
       const token = localStorage.getItem("token");
 
       // Fetch analytics
-      const analyticsRes = await fetch(`${API_URL}/api/analytics/dashboard`, {
+      const analyticsRes = await fetch(`${API_URL}/analytics/dashboard`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -72,7 +72,7 @@ const AdminDashboardHomePage = () => {
       }
 
       // Fetch recent programs
-      const programsRes = await fetch(`${API_URL}/api/programs?limit=5`, {
+      const programsRes = await fetch(`${API_URL}/programs?limit=5`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
