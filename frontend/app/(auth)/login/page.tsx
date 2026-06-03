@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { AlertCircle, Eye, EyeOff, Radio } from "lucide-react";
 import { toast } from "sonner";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 export default function LoginPage() {
   const router = useRouter();

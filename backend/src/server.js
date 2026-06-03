@@ -32,7 +32,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new SocketIOServer(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: process.env.CORS_ORIGIN,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     credentials: true,
   },
@@ -41,7 +41,7 @@ const io = new SocketIOServer(server, {
 // Middleware
 app.use(
   cors({
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: process.env.CORS_ORIGIN,
     credentials: true,
   }),
 );
@@ -61,17 +61,17 @@ app.use((req, res, next) => {
 });
 
 // ── Routes ────────────────────────────────────────────────────────────────────
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/programs", programRoutes);
-app.use("/api/engagement", engagementRoutes);
-app.use("/api/analytics", analyticsRoutes);
-app.use("/api/streaming", streamingRoutes); // legacy radio streaming helpers
-app.use("/api/meetings", meetingRoutes);
-app.use("/api/stream", streamRoutes); // ← new GetStream + LiveSession routes
+app.use("/auth", authRoutes);
+app.use("/users", userRoutes);
+app.use("/programs", programRoutes);
+app.use("/engagement", engagementRoutes);
+app.use("/analytics", analyticsRoutes);
+app.use("/streaming", streamingRoutes); // legacy radio streaming helpers
+app.use("/meetings", meetingRoutes);
+app.use("/stream", streamRoutes); // ← new GetStream + LiveSession routes
 
 // Health check route
-app.get("/api/health", (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
     status: "Server is running",
     timestamp: new Date().toISOString(),
