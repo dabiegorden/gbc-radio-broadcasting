@@ -18,7 +18,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 // Import routes
-import streamRoutes from "./routes/streamRoutes.js"; // ← new session-based routes
+import streamRoutes from "./routes/Streamroutes.js";
 import authRoutes from "./routes/auth.js";
 import userRoutes from "./routes/users.js";
 import programRoutes from "./routes/programs.js";
