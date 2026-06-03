@@ -1,7 +1,7 @@
 import { StreamClient } from "@stream-io/node-sdk";
 import { v2 as cloudinary } from "cloudinary";
 import { v4 as uuidv4 } from "uuid";
-import LiveSession from "../models/LiveSession.js";
+import LiveSession from "../models/Livesession.js";
 import User from "../models/User.js";
 
 /**
@@ -381,13 +381,11 @@ export const getSession = async (req, res) => {
     return res.json({ success: true, session });
   } catch (error) {
     console.error("getSession error:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to fetch session",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch session",
+      error: error.message,
+    });
   }
 };
 
@@ -421,13 +419,11 @@ export const listSessions = async (req, res) => {
     });
   } catch (error) {
     console.error("listSessions error:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to list sessions",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to list sessions",
+      error: error.message,
+    });
   }
 };
 
@@ -449,13 +445,11 @@ export const getLiveSessions = async (req, res) => {
     });
   } catch (error) {
     console.error("getLiveSessions error:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to fetch live sessions",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch live sessions",
+      error: error.message,
+    });
   }
 };
 
@@ -500,13 +494,11 @@ export const getPastRecordings = async (req, res) => {
     });
   } catch (error) {
     console.error("getPastRecordings error:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: "Failed to fetch recordings",
-        error: error.message,
-      });
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fetch recordings",
+      error: error.message,
+    });
   }
 };
 
