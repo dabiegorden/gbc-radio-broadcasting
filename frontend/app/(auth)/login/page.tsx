@@ -130,12 +130,12 @@ export default function LoginPage() {
                   >
                     Password
                   </label>
-                  <Link
+                  {/* <Link
                     href="/forgot-password"
                     className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
                   >
                     Forgot password?
-                  </Link>
+                  </Link> */}
                 </div>
                 <div className="relative">
                   <Input
