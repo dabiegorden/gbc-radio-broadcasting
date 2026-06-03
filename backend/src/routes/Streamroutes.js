@@ -7,7 +7,7 @@ import {
   listSessions,
   getLiveSessions,
   getPastRecordings,
-} from "../controllers/streamController.js";
+} from "../controllers/Streamcontroller.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = express.Router();
