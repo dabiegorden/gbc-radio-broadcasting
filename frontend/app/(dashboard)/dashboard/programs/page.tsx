@@ -22,47 +22,11 @@ import {
   CheckCircle2,
   XCircle,
   AlertCircle,
-  Youtube,
-  Facebook,
-  Instagram,
-  Music2,
-  Link2,
-  Tv2,
-  Trash,
-  Eye,
-  EyeOff,
-  ExternalLink,
-  Play,
-  Heart,
-  Share2,
-  MessageSquare,
-  BarChart3,
-  RefreshCcw,
-  Activity,
-  Zap,
 } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface SocialStats {
-  likes: number | "1.9k";
-  comments: number | "200k";
-  shares: number | "59.9k";
-  views: number | "50m";
-  fetchedAt: string;
-}
-
-interface SocialStream {
-  _id?: string;
-  platform: "youtube" | "facebook" | "instagram" | "tiktok";
-  url: string;
-  embedUrl?: string | null;
-  label?: string;
-  isActive: boolean;
-  stats?: SocialStats;
-}
 
 interface Program {
   _id: string;
@@ -76,7 +40,6 @@ interface Program {
   isRecurring: boolean;
   recurringDays: string[];
   streamingUrl: string | null;
-  socialStreams: SocialStream[];
   status: "scheduled" | "live" | "completed" | "cancelled";
   currentListeners: number;
   totalListeners: number;
@@ -97,7 +60,6 @@ interface ProgramFormData {
   isRecurring: boolean;
   recurringDays: string[];
   streamingUrl: string;
-  socialStreams: SocialStream[];
   tags: string;
 }
 
@@ -124,108 +86,7 @@ const DAYS_OF_WEEK = [
 ];
 const STATUS_OPTIONS = ["scheduled", "live", "completed", "cancelled"];
 
-const SOCIAL_PLATFORMS: {
-  id: SocialStream["platform"];
-  label: string;
-  color: string;
-  bg: string;
-  border: string;
-  placeholder: string;
-  accent: string;
-}[] = [
-  {
-    id: "youtube",
-    label: "YouTube",
-    color: "text-red-400",
-    bg: "bg-red-500/10",
-    border: "border-red-500/30",
-    placeholder: "https://youtube.com/watch?v=... or https://youtu.be/...",
-    accent: "#ef4444",
-  },
-  {
-    id: "facebook",
-    label: "Facebook",
-    color: "text-blue-400",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/30",
-    placeholder: "https://facebook.com/video/...",
-    accent: "#3b82f6",
-  },
-  {
-    id: "instagram",
-    label: "Instagram",
-    color: "text-pink-400",
-    bg: "bg-pink-500/10",
-    border: "border-pink-500/30",
-    placeholder: "https://instagram.com/p/... or /reel/...",
-    accent: "#ec4899",
-  },
-  {
-    id: "tiktok",
-    label: "TikTok",
-    color: "text-cyan-400",
-    bg: "bg-cyan-500/10",
-    border: "border-cyan-500/30",
-    placeholder: "https://tiktok.com/@user/video/...",
-    accent: "#06b6d4",
-  },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function parseFormattedNum(
-  val: number | string | null | undefined,
-): number | null {
-  if (val == null) return null;
-  if (typeof val === "number") return val;
-
-  // Parse formatted strings like "50m", "1.9k", "200k"
-  const match = String(val).match(/^([\d.]+)([kmb])?$/i);
-  if (!match) return null;
-
-  const num = parseFloat(match[1]);
-  const suffix = match[2]?.toLowerCase();
-
-  switch (suffix) {
-    case "k":
-      return num * 1_000;
-    case "m":
-      return num * 1_000_000;
-    case "b":
-      return num * 1_000_000_000;
-    default:
-      return num;
-  }
-}
-
-function fmtNum(n: number | string | null | undefined): string {
-  const parsed = parseFormattedNum(n);
-  if (parsed == null) return "—";
-  if (parsed >= 1_000_000) return `${(parsed / 1_000_000).toFixed(1)}M`;
-  if (parsed >= 1_000) return `${(parsed / 1_000).toFixed(1)}K`;
-  return String(Math.round(parsed));
-}
-
-const PlatformIcon = ({
-  platform,
-  className,
-}: {
-  platform: string;
-  className?: string;
-}) => {
-  switch (platform) {
-    case "youtube":
-      return <Youtube className={className} />;
-    case "facebook":
-      return <Facebook className={className} />;
-    case "instagram":
-      return <Instagram className={className} />;
-    case "tiktok":
-      return <Music2 className={className} />;
-    default:
-      return <Link2 className={className} />;
-  }
-};
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -257,387 +118,6 @@ const getStatusIcon = (status: string) => {
   }
 };
 
-const getPlatformMeta = (platform: string) =>
-  SOCIAL_PLATFORMS.find((p) => p.id === platform) ?? SOCIAL_PLATFORMS[0];
-
-// ─── Stats Panel ──────────────────────────────────────────────────────────────
-
-const StatsPanel = ({
-  stream,
-  programId,
-  onRefresh,
-}: {
-  stream: SocialStream;
-  programId: string;
-  onRefresh: () => void;
-}) => {
-  const [refreshing, setRefreshing] = useState(false);
-  const meta = getPlatformMeta(stream.platform);
-  const stats = stream.stats;
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(
-        `${API_URL}/programs/${programId}/social-streams/${stream.platform}/refresh-stats`,
-        { method: "POST", headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (res.ok) {
-        toast.success(`${meta.label} stats refreshed`);
-        onRefresh();
-      }
-    } catch {
-      toast.error("Failed to refresh stats");
-    } finally {
-      setRefreshing(false);
-    }
-  };
-
-  const statItems = [
-    {
-      icon: Heart,
-      label: "Likes",
-      value: stats?.likes,
-      color: "text-pink-400",
-    },
-    {
-      icon: MessageSquare,
-      label: "Comments",
-      value: stats?.comments,
-      color: "text-sky-400",
-    },
-    {
-      icon: Share2,
-      label: "Shares",
-      value: stats?.shares,
-      color: "text-emerald-400",
-    },
-    { icon: Eye, label: "Views", value: stats?.views, color: "text-amber-400" },
-  ];
-
-  return (
-    <div className={`mt-3 p-4 rounded-xl border ${meta.bg} ${meta.border}`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <BarChart3 className={`w-4 h-4 ${meta.color}`} />
-          <span
-            className={`text-xs font-bold uppercase tracking-wider ${meta.color}`}
-          >
-            {meta.label} Live Stats
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {stats?.fetchedAt && (
-            <span className="text-xs text-purple-600">
-              {new Date(stats.fetchedAt).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </span>
-          )}
-          <button
-            onClick={handleRefresh}
-            disabled={refreshing}
-            className="p-1.5 rounded-lg bg-black/20 hover:bg-black/30 transition-all disabled:opacity-50"
-            title="Refresh stats"
-          >
-            <RefreshCcw
-              className={`w-3.5 h-3.5 text-purple-400 ${refreshing ? "animate-spin" : ""}`}
-            />
-          </button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-4 gap-2">
-        {statItems.map(({ icon: Icon, label, value, color }) => (
-          <div key={label} className="text-center p-2 bg-black/20 rounded-lg">
-            <Icon className={`w-3.5 h-3.5 ${color} mx-auto mb-1`} />
-            <p className="text-white font-bold text-sm">{fmtNum(value)}</p>
-            <p className="text-purple-500 text-xs">{label}</p>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-// ─── Video Player Modal ───────────────────────────────────────────────────────
-
-const VideoPlayerModal = ({
-  stream,
-  programId,
-  onClose,
-  onStatsRefresh,
-}: {
-  stream: SocialStream;
-  programId: string;
-  onClose: () => void;
-  onStatsRefresh: () => void;
-}) => {
-  const meta = getPlatformMeta(stream.platform);
-  const canEmbed = !!stream.embedUrl;
-
-  return (
-    <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-[60] p-4">
-      <div className="w-full max-w-5xl">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl ${meta.bg} ${meta.border} border`}>
-              <PlatformIcon
-                platform={stream.platform}
-                className={`w-5 h-5 ${meta.color}`}
-              />
-            </div>
-            <div>
-              <h3 className="text-white font-bold text-lg">
-                {stream.label || `${meta.label} Stream`}
-              </h3>
-              <p className={`text-sm ${meta.color}`}>{meta.label} Live</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <a
-              href={stream.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 text-sm font-semibold transition-all"
-            >
-              <ExternalLink className="w-4 h-4" /> Open in {meta.label}
-            </a>
-            <button
-              onClick={onClose}
-              className="p-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 rounded-xl transition-all"
-            >
-              <X className="w-5 h-5 text-zinc-400" />
-            </button>
-          </div>
-        </div>
-
-        {/* Video */}
-        <div className="relative bg-black rounded-2xl overflow-hidden border border-purple-500/20 shadow-2xl shadow-purple-500/10">
-          {canEmbed ? (
-            <div className="relative" style={{ paddingTop: "56.25%" }}>
-              <iframe
-                src={stream.embedUrl!}
-                className="absolute inset-0 w-full h-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-                frameBorder="0"
-                title={stream.label || `${meta.label} stream`}
-              />
-            </div>
-          ) : (
-            <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-              <div
-                className={`w-20 h-20 rounded-2xl ${meta.bg} ${meta.border} border flex items-center justify-center mb-6`}
-              >
-                <PlatformIcon
-                  platform={stream.platform}
-                  className={`w-10 h-10 ${meta.color}`}
-                />
-              </div>
-              <h4 className="text-white font-bold text-xl mb-2">
-                Can&apos;t embed this {meta.label} stream
-              </h4>
-              <p className="text-purple-300 text-sm mb-6 max-w-md">
-                {stream.platform === "tiktok"
-                  ? "TikTok Live streams can't be embedded directly. Open in TikTok to watch."
-                  : stream.platform === "instagram"
-                    ? "Instagram Live streams can't be embedded. Open in Instagram to watch."
-                    : "This stream can't be embedded. Open it directly to watch."}
-              </p>
-              <a
-                href={stream.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={`flex items-center gap-2 px-6 py-3 ${meta.bg} ${meta.border} border rounded-xl ${meta.color} font-bold transition-all hover:opacity-80`}
-              >
-                <ExternalLink className="w-5 h-5" /> Watch on {meta.label}
-              </a>
-            </div>
-          )}
-        </div>
-
-        {/* Stats below video */}
-        <StatsPanel
-          stream={stream}
-          programId={programId}
-          onRefresh={onStatsRefresh}
-        />
-      </div>
-    </div>
-  );
-};
-
-// ─── Social Streams Editor ────────────────────────────────────────────────────
-
-const SocialStreamsEditor = ({
-  streams,
-  onChange,
-}: {
-  streams: SocialStream[];
-  onChange: (streams: SocialStream[]) => void;
-}) => {
-  const [activeTab, setActiveTab] =
-    useState<SocialStream["platform"]>("youtube");
-  const currentStream = streams.find((s) => s.platform === activeTab);
-  const meta = getPlatformMeta(activeTab);
-
-  const updateStream = (field: keyof SocialStream, value: string | boolean) => {
-    const existing = streams.find((s) => s.platform === activeTab);
-    if (existing) {
-      onChange(
-        streams.map((s) =>
-          s.platform === activeTab ? { ...s, [field]: value } : s,
-        ),
-      );
-    } else {
-      onChange([
-        ...streams,
-        {
-          platform: activeTab,
-          url: "",
-          label: "",
-          isActive: true,
-          [field]: value,
-        },
-      ]);
-    }
-  };
-
-  const removeStream = (platform: string) =>
-    onChange(streams.filter((s) => s.platform !== platform));
-
-  return (
-    <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        {SOCIAL_PLATFORMS.map((p) => {
-          const has = streams.some((s) => s.platform === p.id);
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setActiveTab(p.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-xl border text-sm font-semibold transition-all duration-200 ${
-                activeTab === p.id
-                  ? `${p.bg} ${p.border} ${p.color}`
-                  : "bg-purple-900/20 border-purple-700/30 text-purple-400 hover:border-purple-600/50"
-              }`}
-            >
-              <PlatformIcon platform={p.id} className="w-4 h-4" />
-              {p.label}
-              {has && (
-                <span
-                  className={`w-1.5 h-1.5 rounded-full ${p.id === "youtube" ? "bg-red-400" : p.id === "facebook" ? "bg-blue-400" : p.id === "instagram" ? "bg-pink-400" : "bg-cyan-400"}`}
-                />
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div
-        className={`p-5 rounded-2xl border ${meta.bg} ${meta.border} space-y-4`}
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <PlatformIcon
-              platform={activeTab}
-              className={`w-5 h-5 ${meta.color}`}
-            />
-            <span className={`font-bold ${meta.color}`}>
-              {meta.label} Stream
-            </span>
-          </div>
-          {currentStream && (
-            <button
-              type="button"
-              onClick={() => removeStream(activeTab)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 rounded-xl text-red-400 text-xs font-semibold transition-all"
-            >
-              <Trash className="w-3 h-3" /> Remove
-            </button>
-          )}
-        </div>
-
-        <div>
-          <label className="block text-purple-300 text-xs font-semibold uppercase tracking-wider mb-2">
-            Stream URL
-          </label>
-          <input
-            type="url"
-            value={currentStream?.url ?? ""}
-            onChange={(e) => updateStream("url", e.target.value)}
-            className="w-full px-4 py-3 bg-black/40 border border-purple-700/40 rounded-xl text-white placeholder-purple-600/50 focus:outline-none focus:border-purple-500/60 transition-all text-sm"
-            placeholder={meta.placeholder}
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-purple-300 text-xs font-semibold uppercase tracking-wider mb-2">
-              Label (optional)
-            </label>
-            <input
-              type="text"
-              value={currentStream?.label ?? ""}
-              onChange={(e) => updateStream("label", e.target.value)}
-              className="w-full px-4 py-3 bg-black/40 border border-purple-700/40 rounded-xl text-white placeholder-purple-600/50 focus:outline-none focus:border-purple-500/60 transition-all text-sm"
-              placeholder={`e.g. Main ${meta.label} Live`}
-            />
-          </div>
-          <div>
-            <label className="block text-purple-300 text-xs font-semibold uppercase tracking-wider mb-2">
-              Visibility
-            </label>
-            <button
-              type="button"
-              onClick={() =>
-                updateStream("isActive", !(currentStream?.isActive ?? true))
-              }
-              className={`w-full px-4 py-3 rounded-xl border flex items-center justify-center gap-2 text-sm font-semibold transition-all ${
-                (currentStream?.isActive ?? true)
-                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"
-                  : "bg-purple-900/20 border-purple-700/30 text-purple-500"
-              }`}
-            >
-              {(currentStream?.isActive ?? true) ? (
-                <>
-                  <Eye className="w-4 h-4" /> Active
-                </>
-              ) : (
-                <>
-                  <EyeOff className="w-4 h-4" /> Hidden
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {streams.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {streams.map((s) => {
-            const m = getPlatformMeta(s.platform);
-            return (
-              <div
-                key={s.platform}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold ${m.bg} ${m.border} ${m.color}`}
-              >
-                <PlatformIcon platform={s.platform} className="w-3.5 h-3.5" />
-                {m.label}
-                {!s.isActive && <EyeOff className="w-3 h-3 opacity-60" />}
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Program Form ─────────────────────────────────────────────────────────────
 
 const ProgramForm = ({
@@ -656,7 +136,7 @@ const ProgramForm = ({
   isEdit?: boolean;
 }) => {
   const [activeSection, setActiveSection] = useState<
-    "basic" | "schedule" | "streaming" | "social"
+    "basic" | "schedule" | "streaming"
   >("basic");
 
   const handleChange = (
@@ -688,7 +168,6 @@ const ProgramForm = ({
     { id: "basic", label: "Basic Info" },
     { id: "schedule", label: "Schedule" },
     { id: "streaming", label: "Broadcast" },
-    { id: "social", label: "Social" },
   ] as const;
 
   const inputCls =
@@ -896,27 +375,6 @@ const ProgramForm = ({
             </div>
           </div>
         )}
-
-        {activeSection === "social" && (
-          <div className="space-y-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Tv2 className="w-5 h-5 text-pink-400" />
-              <span className="text-pink-300 font-bold text-sm">
-                Social Platform Streams
-              </span>
-            </div>
-            <p className="text-purple-500 text-xs">
-              Add YouTube, Facebook, Instagram, or TikTok stream links. Viewers
-              can watch them embedded in the app or open in a new tab.
-            </p>
-            <SocialStreamsEditor
-              streams={formData.socialStreams}
-              onChange={(s) =>
-                setFormData((prev) => ({ ...prev, socialStreams: s }))
-              }
-            />
-          </div>
-        )}
       </div>
 
       <div className="flex gap-3 pt-6 mt-4 border-t border-purple-800/40">
@@ -938,115 +396,6 @@ const ProgramForm = ({
   );
 };
 
-// ─── Stream Bar ───────────────────────────────────────────────────────────────
-
-const StreamPreviewBar = ({
-  program,
-  onPlay,
-}: {
-  program: Program;
-  onPlay: (stream: SocialStream) => void;
-}) => {
-  const activeStreams = program.socialStreams?.filter((s) => s.isActive) ?? [];
-  if (activeStreams.length === 0 && !program.streamingUrl) return null;
-
-  return (
-    <div className="flex flex-wrap gap-1.5 mt-3">
-      {activeStreams.map((stream) => {
-        const m = getPlatformMeta(stream.platform);
-        const hasStats =
-          stream.stats &&
-          (stream.stats.likes != null || stream.stats.views != null);
-        return (
-          <button
-            key={stream.platform}
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onPlay(stream);
-            }}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition-all hover:opacity-80 ${m.bg} ${m.border} ${m.color}`}
-          >
-            <Play className="w-3 h-3" />
-            {stream.label || m.label}
-            {hasStats && (
-              <span className="flex items-center gap-0.5 ml-1 opacity-75">
-                <Activity className="w-2.5 h-2.5" />
-              </span>
-            )}
-          </button>
-        );
-      })}
-    </div>
-  );
-};
-
-// ─── Inline Social Stats Row (on program card) ────────────────────────────────
-
-const SocialStatsRow = ({
-  program,
-  onRefresh,
-}: {
-  program: Program;
-  onRefresh: () => void;
-}) => {
-  const activeStreams =
-    program.socialStreams?.filter((s) => s.isActive && s.stats) ?? [];
-  if (activeStreams.length === 0) return null;
-
-  return (
-    <div className="mt-3 pt-3 border-t border-purple-800/30">
-      <div className="flex items-center gap-1.5 mb-2">
-        <Zap className="w-3 h-3 text-amber-400" />
-        <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">
-          Live Engagement
-        </span>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        {activeStreams.map((stream) => {
-          const m = getPlatformMeta(stream.platform);
-          const s = stream.stats!;
-          const total = [s.likes, s.views, s.comments, s.shares].filter(
-            (v) => v != null,
-          );
-          if (total.length === 0) return null;
-          return (
-            <div
-              key={stream.platform}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${m.bg} ${m.border}`}
-            >
-              <PlatformIcon
-                platform={stream.platform}
-                className={`w-3 h-3 ${m.color}`}
-              />
-              <div className="flex items-center gap-2 text-xs">
-                {s.views != null && (
-                  <span className="flex items-center gap-1 text-amber-400">
-                    <Eye className="w-3 h-3" />
-                    {fmtNum(s.views)}
-                  </span>
-                )}
-                {s.likes != null && (
-                  <span className="flex items-center gap-1 text-pink-400">
-                    <Heart className="w-3 h-3" />
-                    {fmtNum(s.likes)}
-                  </span>
-                )}
-                {s.comments != null && (
-                  <span className="flex items-center gap-1 text-sky-400">
-                    <MessageSquare className="w-3 h-3" />
-                    {fmtNum(s.comments)}
-                  </span>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-};
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const AdminProgramsPage = () => {
@@ -1062,10 +411,6 @@ const AdminProgramsPage = () => {
   const [sortBy, setSortBy] = useState("createdAt");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [showFilters, setShowFilters] = useState(false);
-  const [activeStream, setActiveStream] = useState<{
-    stream: SocialStream;
-    programId: string;
-  } | null>(null);
 
   const emptyForm = (): ProgramFormData => ({
     title: "",
@@ -1077,7 +422,6 @@ const AdminProgramsPage = () => {
     isRecurring: false,
     recurringDays: [],
     streamingUrl: "",
-    socialStreams: [],
     tags: "",
   });
 
@@ -1086,7 +430,7 @@ const AdminProgramsPage = () => {
   const fetchPrograms = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/programs?withStats=true`, {
+      const res = await fetch(`${API_URL}/programs`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.ok) {
@@ -1254,7 +598,6 @@ const AdminProgramsPage = () => {
       isRecurring: program.isRecurring,
       recurringDays: program.recurringDays || [],
       streamingUrl: program.streamingUrl || "",
-      socialStreams: program.socialStreams || [],
       tags: program.tags.join(", "),
     });
     setShowEditModal(true);
@@ -1318,16 +661,6 @@ const AdminProgramsPage = () => {
         input[type="datetime-local"]::-webkit-calendar-picker-indicator { filter: invert(0.5); }
         select option { background: #1a0a2e; }
       `}</style>
-
-      {/* Video Player Modal */}
-      {activeStream && (
-        <VideoPlayerModal
-          stream={activeStream.stream}
-          programId={activeStream.programId}
-          onClose={() => setActiveStream(null)}
-          onStatsRefresh={fetchPrograms}
-        />
-      )}
 
       {/* Header */}
       <div className="border-b border-purple-800/40 bg-purple-950/60 backdrop-blur sticky top-0 z-30">
@@ -1580,20 +913,6 @@ const AdminProgramsPage = () => {
                         </span>
                       ))}
                     </div>
-
-                    {/* Stream play buttons */}
-                    <StreamPreviewBar
-                      program={program}
-                      onPlay={(s) =>
-                        setActiveStream({ stream: s, programId: program._id })
-                      }
-                    />
-
-                    {/* Inline stats row */}
-                    <SocialStatsRow
-                      program={program}
-                      onRefresh={fetchPrograms}
-                    />
                   </div>
 
                   {/* Actions */}
@@ -1673,7 +992,7 @@ const AdminProgramsPage = () => {
       {/* Edit Modal */}
       {showEditModal && selectedProgram && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-linear-to-br from-slate-950 via-purple-950/80 to-slate-900 border border-purple-700/40 rounded-3xl p-7 w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl shadow-purple-500/10">
+          <div className="bg-gradient-to-br from-slate-950 via-purple-950/80 to-slate-900 border border-purple-700/40 rounded-3xl p-7 w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl shadow-purple-500/10">
             <div className="flex items-center justify-between mb-6">
               <h2
                 className="text-xl font-black text-white"

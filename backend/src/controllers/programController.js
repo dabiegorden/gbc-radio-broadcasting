@@ -1,9 +1,6 @@
 import Program from "../models/Program.js";
 import { deriveEmbedUrl, validateSocialUrl } from "../utils/embedUrl.js";
-import {
-  fetchSocialStats,
-  fetchAllSocialStats,
-} from "../utils/Socialstats .js";
+import { fetchSocialStats, fetchAllSocialStats } from "../utils/Socialstats.js";
 
 // ─── In-memory stats cache ────────────────────────────────────────────────────
 //
@@ -52,7 +49,7 @@ function normaliseSocialStreams(raw = []) {
       );
     }
 
-    const validPlatforms = ["tiktok", "facebook", "instagram", "youtube"];
+    const validPlatforms = ["youtube"];
     if (!validPlatforms.includes(platform)) {
       throw new Error(
         `socialStreams[${i}]: platform must be one of ${validPlatforms.join(", ")}`,

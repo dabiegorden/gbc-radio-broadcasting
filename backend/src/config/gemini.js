@@ -26,7 +26,7 @@ const initializeGemini = () => {
 /**
  * Get Gemini model instance
  */
-const getGeminiModel = (client, modelName = "gemini-2.0-flash-exp") => {
+const getGeminiModel = (client, modelName = "gemini-3.5-flash") => {
   if (!client) {
     throw new Error("Gemini client not initialized");
   }

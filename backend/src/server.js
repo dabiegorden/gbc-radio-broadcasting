@@ -26,6 +26,10 @@ import engagementRoutes from "./routes/engagement.js";
 import analyticsRoutes from "./routes/analytics.js";
 import streamingRoutes from "./routes/streaming.js";
 import meetingRoutes from "./routes/meetingRoutes.js";
+import youtubeRoutes from "./routes/youtubeStream.js"; // ← NEW: YouTube Live analytics
+
+// ← NEW: background YouTube collector
+import { initializeYoutubeCollector } from "./jobs/youtubeCollector.js";
 
 // Initialize express app
 const app = express();
@@ -68,7 +72,8 @@ app.use("/engagement", engagementRoutes);
 app.use("/analytics", analyticsRoutes);
 app.use("/streaming", streamingRoutes); // legacy radio streaming helpers
 app.use("/meetings", meetingRoutes);
-app.use("/stream", streamRoutes); // ← new GetStream + LiveSession routes
+app.use("/stream", streamRoutes); // GetStream + LiveSession routes
+app.use("/youtube", youtubeRoutes); // ← NEW: YouTube Live monitoring + analytics
 
 // Health check route
 app.get("/health", (req, res) => {
@@ -91,7 +96,7 @@ io.on("connection", (socket) => {
     io.emit("stream-status", status);
   });
 
-  // New session-level events
+  // Existing session-level events
   socket.on("join-session", ({ sessionId }) => {
     socket.join(`session-${sessionId}`);
     console.log(`Socket ${socket.id} joined room session-${sessionId}`);
@@ -99,6 +104,18 @@ io.on("connection", (socket) => {
 
   socket.on("leave-session", ({ sessionId }) => {
     socket.leave(`session-${sessionId}`);
+  });
+
+  // ← NEW: YouTube live analytics rooms.
+  // Frontend emits join-youtube-stream to receive liveStatsUpdated /
+  // newLiveChatMessage / analyticsUpdated for one specific stream.
+  socket.on("join-youtube-stream", ({ streamId }) => {
+    socket.join(`youtube-${streamId}`);
+    console.log(`Socket ${socket.id} joined room youtube-${streamId}`);
+  });
+
+  socket.on("leave-youtube-stream", ({ streamId }) => {
+    socket.leave(`youtube-${streamId}`);
   });
 
   socket.on("disconnect", () => {
@@ -132,6 +149,10 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV}`);
+
+  // ← NEW: start the background collector once the server is up.
+  // Pass io so it can broadcast live updates to the frontend.
+  initializeYoutubeCollector(io);
 });
 
 export default app;

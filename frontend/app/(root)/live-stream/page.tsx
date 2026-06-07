@@ -1,20 +1,18 @@
 "use client";
 
 /**
- * LiveStreamUsersPage  (v3 — with Radio Broadcasts)
- * ──────────────────────────────────────────────────
- * Three tabs:
- *   1. LIVE      — GetStream live sessions (video)
- *   2. RADIO     — Radio/program broadcasts (audio, from /programs + /streaming)
- *   3. REPLAYS   — Past Cloudinary recordings (video)
+ * LiveStreamUsersPage  (v4 — Radio + Replays, no video/live tab)
+ * ────────────────────────────────────────────────────────────────
+ * Two tabs:
+ *   1. RADIO   — Radio/program broadcasts (audio, from /programs + /streaming)
+ *   2. REPLAYS — Past Cloudinary recordings (inline video player, no modal)
+ *
+ * Key UX change: radio player is INLINE in the right panel alongside comments.
+ * No modal — you can play/pause while typing comments, liking, or sharing.
  *
  * Routes consumed:
- *   GET  /stream/sessions/live          → live video sessions
  *   GET  /stream/sessions/recordings    → past recordings
- *   GET  /stream/token                  → GetStream viewer token
- *   GET  /programs?isLive=true          → live radio programs
- *   GET  /programs                      → all programs (for scheduled/upcoming)
- *   GET  /streaming/:programId/status   → stream health check
+ *   GET  /programs                      → all programs
  *   POST /streaming/:programId/join     → increment listener count
  *   POST /streaming/:programId/leave    → decrement listener count
  *   POST /engagement                    → comments / likes / shares
@@ -24,21 +22,11 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import {
-  StreamVideo,
-  StreamCall,
-  StreamVideoClient,
-  LivestreamLayout,
-} from "@stream-io/video-react-sdk";
-// @ts-ignore
-import "@stream-io/video-react-sdk/dist/css/styles.css";
-import {
   Radio,
-  Users,
   Heart,
   Share2,
   MessageSquare,
   Send,
-  Signal,
   Sparkles,
   Smile,
   Meh,
@@ -49,41 +37,30 @@ import {
   Play,
   Film,
   Clock,
-  X,
-  Tv2,
   Calendar,
   PlayCircle,
   Volume2,
   VolumeX,
   Headphones,
-  Wifi,
-  WifiOff,
   Music,
   Mic,
   Pause,
   ExternalLink,
+  WifiOff,
+  Youtube,
+  Users,
 } from "lucide-react";
 import { io, Socket } from "socket.io-client";
+import {
+  getStreams,
+  getSingleStream,
+  type YoutubeStream,
+  type YoutubeChat,
+} from "@/services/youtubeApi";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface LiveSession {
-  _id: string;
-  title: string;
-  description: string;
-  hostDisplayName: string;
-  streamCallId: string;
-  streamCallType: string;
-  status: "live" | "processing" | "available" | "ended";
-  startedAt: string;
-  endedAt?: string;
-  durationSeconds?: number;
-  tags: string[];
-  coverImage?: string | null;
-  linkedProgram?: string | null;
-}
 
 interface Recording {
   _id: string;
@@ -144,13 +121,6 @@ interface Engagement {
   createdAt: string;
 }
 
-interface StreamCreds {
-  token: string;
-  streamUserId: string;
-  displayName: string;
-  apiKey: string;
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const authHeader = () => ({
@@ -178,9 +148,6 @@ const fmtDate = (iso: string) =>
     hour: "2-digit",
     minute: "2-digit",
   });
-
-const fmtTime = (iso: string) =>
-  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 const getSentimentDisplay = (sentiment: string | null | undefined) => {
   switch (sentiment) {
@@ -218,68 +185,15 @@ const getCategoryColor = (category: string) => {
   return map[category?.toLowerCase()] || map.other;
 };
 
-// ─── Recording Video Modal ────────────────────────────────────────────────────
+// ─── Inline Radio Player Panel ────────────────────────────────────────────────
+// Sits in the right column. No modal — you keep it open while chatting.
 
-const VideoModal = ({
-  rec,
-  onClose,
-}: {
-  rec: Recording;
-  onClose: () => void;
-}) => (
-  <div
-    className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-    onClick={onClose}
-  >
-    <div
-      className="w-full max-w-4xl bg-slate-900 rounded-3xl overflow-hidden border border-purple-500/30 shadow-2xl shadow-purple-500/20"
-      onClick={(e) => e.stopPropagation()}
-    >
-      <div className="flex items-center justify-between px-6 py-4 border-b border-purple-500/20">
-        <div>
-          <p className="text-white font-bold text-lg">{rec.title}</p>
-          <p className="text-purple-400 text-sm">
-            {rec.host} · {fmtDate(rec.startedAt)}
-            {rec.durationSeconds && (
-              <span className="ml-2 text-purple-500">
-                · {fmtDuration(rec.durationSeconds)}
-              </span>
-            )}
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="p-2 hover:bg-purple-500/20 rounded-xl text-purple-300 transition-colors"
-        >
-          <X className="w-5 h-5" />
-        </button>
-      </div>
-      <div className="aspect-video bg-black">
-        <video
-          src={rec.playbackUrl}
-          controls
-          autoPlay
-          className="w-full h-full"
-          poster={rec.thumbnailUrl}
-        />
-      </div>
-      {rec.description && (
-        <div className="px-6 py-4 border-t border-purple-500/20">
-          <p className="text-purple-300 text-sm">{rec.description}</p>
-        </div>
-      )}
-    </div>
-  </div>
-);
-
-// ─── Radio Player Modal ───────────────────────────────────────────────────────
-
-const RadioPlayerModal = ({
+const InlineRadioPlayer = ({
   program,
-  onClose,
+  onStop,
 }: {
   program: Program;
-  onClose: () => void;
+  onStop: () => void;
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -288,11 +202,11 @@ const RadioPlayerModal = ({
   const [hasJoined, setHasJoined] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Join stream on mount — increment listener count
+  // Join stream on mount
   useEffect(() => {
-    fetch(`${API_URL}/streaming/${program._id}/join`, { method: "POST" }).catch(
-      () => {},
-    );
+    fetch(`${API_URL}/streaming/${program._id}/join`, {
+      method: "POST",
+    }).catch(() => {});
     setHasJoined(true);
     return () => {
       fetch(`${API_URL}/streaming/${program._id}/leave`, {
@@ -307,12 +221,13 @@ const RadioPlayerModal = ({
       audioRef.current.pause();
       setIsPlaying(false);
     } else {
+      setError(null);
       audioRef.current
         .play()
         .then(() => setIsPlaying(true))
-        .catch((e) => {
-          setError("Could not play stream. The stream may be offline.");
-        });
+        .catch(() =>
+          setError("Could not play stream. The stream may be offline."),
+        );
     }
   };
 
@@ -329,86 +244,86 @@ const RadioPlayerModal = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg bg-slate-900 rounded-3xl overflow-hidden border border-purple-500/30 shadow-2xl shadow-purple-500/20"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-purple-500/20 bg-gradient-to-r from-purple-900/40 to-pink-900/40">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center">
-                <Radio className="w-5 h-5 text-white" />
-              </div>
-              {program.isLive && (
-                <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
-              )}
+    <div className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 backdrop-blur-xl border border-purple-500/40 rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20">
+      {/* Player header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-purple-500/20 bg-black/20">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative shrink-0">
+            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center shadow-lg shadow-purple-500/30">
+              <Radio className="w-5 h-5 text-white" />
             </div>
-            <div>
-              <p className="text-white font-bold">{program.title}</p>
-              <p className="text-purple-400 text-sm">{program.host}</p>
-            </div>
+            {program.isLive && (
+              <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
+            )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-purple-500/20 rounded-xl text-purple-300 transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="min-w-0">
+            <p className="text-white font-bold truncate leading-tight">
+              {program.title}
+            </p>
+            <p className="text-purple-400 text-xs truncate">{program.host}</p>
+          </div>
         </div>
+        <button
+          onClick={onStop}
+          title="Stop & close player"
+          className="shrink-0 ml-3 px-3 py-1.5 rounded-xl text-xs font-semibold text-purple-400 hover:text-white bg-purple-500/10 hover:bg-red-500/20 border border-purple-500/20 hover:border-red-500/30 transition-all"
+        >
+          Stop
+        </button>
+      </div>
 
-        {/* Player body */}
-        <div className="p-8">
-          {/* Animated waveform visual */}
-          <div className="flex items-center justify-center gap-1 h-16 mb-8">
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div
-                key={i}
-                className={`w-1.5 rounded-full transition-all duration-300 ${
-                  isPlaying
-                    ? "bg-gradient-to-t from-purple-600 to-pink-400"
-                    : "bg-purple-800"
-                }`}
-                style={{
-                  height: isPlaying ? "60%" : "20%",
-                  animationName: isPlaying ? "wave" : "none",
-                  animationDuration: `${0.5 + i * 0.03}s`,
-                  animationTimingFunction: "ease-in-out",
-                  animationIterationCount: "infinite",
-                  animationDirection: "alternate",
-                  animationDelay: `${i * 50}ms`,
-                }}
-              />
-            ))}
-          </div>
+      {/* Waveform visualiser */}
+      <div className="flex items-end justify-center gap-[3px] h-14 px-6 pt-4">
+        {Array.from({ length: 28 }).map((_, i) => (
+          <div
+            key={i}
+            className={`w-1 rounded-full transition-all ${
+              isPlaying
+                ? "bg-gradient-to-t from-purple-600 to-pink-400"
+                : "bg-purple-800/60"
+            }`}
+            style={
+              isPlaying
+                ? {
+                    height: `${30 + Math.sin(i * 0.7) * 22}%`,
+                    animation: `wave ${0.6 + i * 0.04}s ease-in-out infinite alternate`,
+                    animationDelay: `${i * 40}ms`,
+                  }
+                : { height: "15%" }
+            }
+          />
+        ))}
+      </div>
 
-          {/* Category + listeners */}
-          <div className="flex items-center justify-center gap-3 mb-6">
-            <span
-              className={`px-3 py-1 border rounded-full text-xs font-semibold ${getCategoryColor(program.category)}`}
-            >
-              {program.category}
+      {/* Meta row */}
+      <div className="flex items-center justify-center gap-3 px-5 pt-3 pb-1 flex-wrap">
+        <span
+          className={`px-2.5 py-0.5 border rounded-full text-xs font-semibold ${getCategoryColor(program.category)}`}
+        >
+          {program.category}
+        </span>
+        {program.isLive && (
+          <div className="flex items-center gap-1.5 text-purple-400 text-xs">
+            <Headphones className="w-3.5 h-3.5" />
+            <span>
+              {program.currentListeners + (hasJoined ? 1 : 0)} listening
             </span>
-            <div className="flex items-center gap-1 text-purple-400 text-sm">
-              <Headphones className="w-4 h-4" />
-              <span>
-                {program.currentListeners + (hasJoined ? 1 : 0)} listening
-              </span>
-            </div>
           </div>
+        )}
+      </div>
 
-          {error && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 text-sm text-center">
-              {error}
-            </div>
-          )}
+      {/* Error */}
+      {error && (
+        <div className="mx-5 mt-2 p-2.5 bg-red-500/10 border border-red-500/30 rounded-xl text-red-300 text-xs text-center flex items-center justify-center gap-2">
+          <WifiOff className="w-4 h-4 shrink-0" />
+          {error}
+        </div>
+      )}
 
-          {/* Audio element */}
-          {program.streamingUrl && (
+      {/* Controls */}
+      <div className="px-5 pb-5 pt-3">
+        {program.streamingUrl ? (
+          <>
             <audio
               ref={audioRef}
               src={program.streamingUrl}
@@ -419,15 +334,12 @@ const RadioPlayerModal = ({
               onPlay={() => setIsPlaying(true)}
               onPause={() => setIsPlaying(false)}
             />
-          )}
 
-          {/* Controls */}
-          {program.streamingUrl ? (
-            <div className="flex flex-col items-center gap-4">
-              {/* Play/Pause */}
+            {/* Big play button */}
+            <div className="flex justify-center mb-4">
               <button
                 onClick={togglePlay}
-                className="w-16 h-16 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-full flex items-center justify-center shadow-lg shadow-purple-500/30 transition-all hover:scale-110 active:scale-95"
+                className="w-16 h-16 bg-gradient-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-full flex items-center justify-center shadow-xl shadow-purple-500/40 transition-all hover:scale-110 active:scale-95"
               >
                 {isPlaying ? (
                   <Pause className="w-7 h-7 text-white" />
@@ -435,68 +347,70 @@ const RadioPlayerModal = ({
                   <Play className="w-7 h-7 text-white ml-1" />
                 )}
               </button>
+            </div>
 
-              {/* Volume row */}
-              <div className="flex items-center gap-3 w-full">
-                <button
-                  onClick={toggleMute}
-                  className="text-purple-400 hover:text-white transition-colors"
+            {/* Volume row */}
+            <div className="flex items-center gap-3">
+              <button
+                onClick={toggleMute}
+                className="text-purple-400 hover:text-white transition-colors shrink-0"
+              >
+                {isMuted ? (
+                  <VolumeX className="w-5 h-5" />
+                ) : (
+                  <Volume2 className="w-5 h-5" />
+                )}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.01"
+                value={volume}
+                onChange={handleVolumeChange}
+                className="flex-1 accent-purple-500 h-1.5 rounded-full"
+              />
+              <span className="text-purple-500 text-xs w-7 text-right shrink-0">
+                {Math.round(volume * 100)}%
+              </span>
+            </div>
+          </>
+        ) : (
+          /* No direct stream URL — social stream links */
+          <div className="space-y-2 mt-1">
+            <p className="text-purple-400 text-xs text-center mb-3">
+              Listen via external platform:
+            </p>
+            {program.socialStreams
+              ?.filter((s) => s.isActive)
+              .map((s) => (
+                <a
+                  key={s.platform}
+                  href={s.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-between p-3.5 bg-purple-900/30 border border-purple-500/30 hover:border-purple-500/60 rounded-xl transition-all group"
                 >
-                  {isMuted ? (
-                    <VolumeX className="w-5 h-5" />
-                  ) : (
-                    <Volume2 className="w-5 h-5" />
-                  )}
-                </button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.01"
-                  value={volume}
-                  onChange={handleVolumeChange}
-                  className="flex-1 accent-purple-500"
-                />
-              </div>
-            </div>
-          ) : (
-            /* No direct stream URL — show social stream links */
-            <div className="space-y-3">
-              <p className="text-purple-400 text-sm text-center mb-4">
-                Listen via:
+                  <span className="text-white font-semibold text-sm capitalize">
+                    {s.platform}
+                  </span>
+                  <ExternalLink className="w-4 h-4 text-purple-400 group-hover:text-white transition-colors" />
+                </a>
+              ))}
+            {(!program.socialStreams ||
+              program.socialStreams.filter((s) => s.isActive).length === 0) && (
+              <p className="text-purple-500 text-sm text-center py-2">
+                No stream link available yet.
               </p>
-              {program.socialStreams
-                ?.filter((s) => s.isActive)
-                .map((s) => (
-                  <a
-                    key={s.platform}
-                    href={s.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-between p-4 bg-purple-900/30 border border-purple-500/30 hover:border-purple-500/60 rounded-xl transition-all group"
-                  >
-                    <span className="text-white font-semibold capitalize">
-                      {s.platform}
-                    </span>
-                    <ExternalLink className="w-4 h-4 text-purple-400 group-hover:text-white transition-colors" />
-                  </a>
-                ))}
-              {(!program.socialStreams ||
-                program.socialStreams.filter((s) => s.isActive).length ===
-                  0) && (
-                <p className="text-purple-500 text-sm text-center">
-                  No stream link available yet.
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <style jsx>{`
         @keyframes wave {
           from {
-            transform: scaleY(0.3);
+            transform: scaleY(0.4);
           }
           to {
             transform: scaleY(1);
@@ -507,18 +421,290 @@ const RadioPlayerModal = ({
   );
 };
 
+// ─── Inline Replay Video Player ───────────────────────────────────────────────
+// Shown in the right panel when a recording is selected. No modal.
+
+const InlineReplayPlayer = ({
+  rec,
+  onClose,
+}: {
+  rec: Recording;
+  onClose: () => void;
+}) => (
+  <div className="bg-slate-900/80 border border-purple-500/30 rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/10">
+    {/* Header */}
+    <div className="flex items-center justify-between px-5 py-4 border-b border-purple-500/20 bg-black/20">
+      <div className="min-w-0">
+        <p className="text-white font-bold truncate">{rec.title}</p>
+        <p className="text-purple-400 text-xs">
+          {rec.host} · {fmtDate(rec.startedAt)}
+          {rec.durationSeconds && (
+            <span className="ml-2 text-purple-500">
+              · {fmtDuration(rec.durationSeconds)}
+            </span>
+          )}
+        </p>
+      </div>
+      <button
+        onClick={onClose}
+        className="shrink-0 ml-3 px-3 py-1.5 rounded-xl text-xs font-semibold text-purple-400 hover:text-white bg-purple-500/10 hover:bg-red-500/20 border border-purple-500/20 hover:border-red-500/30 transition-all"
+      >
+        Close
+      </button>
+    </div>
+
+    {/* Video */}
+    <div className="aspect-video bg-black">
+      <video
+        src={rec.playbackUrl}
+        controls
+        autoPlay
+        className="w-full h-full"
+        poster={rec.thumbnailUrl}
+      />
+    </div>
+
+    {rec.description && (
+      <div className="px-5 py-3 border-t border-purple-500/20">
+        <p className="text-purple-300 text-sm">{rec.description}</p>
+      </div>
+    )}
+
+    {rec.tags?.length > 0 && (
+      <div className="px-5 pb-4 flex flex-wrap gap-1.5">
+        {rec.tags.map((tag) => (
+          <span
+            key={tag}
+            className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 rounded-full text-purple-300 text-xs"
+          >
+            #{tag}
+          </span>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+// ─── Inline YouTube Live Player + Comments ────────────────────────────────────
+// Shows just the embedded video and the live chat/comments — no analytics,
+// no charts, no sentiment breakdowns (those stay on the admin dashboard).
+
+const YoutubeLivePlayer = ({ stream }: { stream: YoutubeStream }) => {
+  const [chats, setChats] = useState<YoutubeChat[]>([]);
+  const [viewers, setViewers] = useState<number>(
+    stream.currentViewers ?? stream.viewers ?? 0,
+  );
+  const socketRef = useRef<Socket | null>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getSingleStream(stream._id)
+      .then((data) => {
+        if (!cancelled) setChats(data.recentChats || []);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [stream._id]);
+
+  useEffect(() => {
+    const socket = io(API_URL as string);
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      socket.emit("join-youtube-stream", { streamId: stream._id });
+    });
+
+    socket.on("liveStatsUpdated", (data: any) => {
+      if (data.streamId !== stream._id) return;
+      if (data.stats?.currentViewers != null)
+        setViewers(data.stats.currentViewers);
+    });
+
+    socket.on("newLiveChatMessage", (data: any) => {
+      if (data.streamId !== stream._id) return;
+      setChats((prev) => [...prev, ...(data.messages || [])].slice(-200));
+    });
+
+    return () => {
+      socket.emit("leave-youtube-stream", { streamId: stream._id });
+      socket.disconnect();
+      socketRef.current = null;
+    };
+  }, [stream._id]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chats]);
+
+  return (
+    <div className="space-y-5">
+      {/* Video */}
+      <div className="bg-gradient-to-br from-purple-900/50 to-pink-900/50 backdrop-blur-xl border border-purple-500/40 rounded-3xl overflow-hidden shadow-2xl shadow-purple-500/20">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-purple-500/20 bg-black/20">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="relative shrink-0">
+              <div className="w-10 h-10 bg-gradient-to-br from-red-600 to-rose-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-500/30">
+                <Youtube className="w-5 h-5 text-white" />
+              </div>
+              {stream.isLiveNow && (
+                <div className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-slate-900 animate-pulse" />
+              )}
+            </div>
+            <div className="min-w-0">
+              <p className="text-white font-bold truncate leading-tight">
+                {stream.title || "YouTube Live"}
+              </p>
+              <p className="text-purple-400 text-xs truncate">
+                {stream.channelTitle || "—"}
+              </p>
+            </div>
+          </div>
+          {stream.isLiveNow && (
+            <div className="flex items-center gap-1.5 text-purple-300 text-xs shrink-0 ml-3">
+              <Users className="w-3.5 h-3.5" />
+              <span>{viewers} watching</span>
+            </div>
+          )}
+        </div>
+
+        {stream.youtubeVideoId ? (
+          <div className="aspect-video bg-black">
+            <iframe
+              src={`https://www.youtube.com/embed/${stream.youtubeVideoId}?autoplay=0`}
+              title={stream.title || "YouTube live stream"}
+              className="w-full h-full"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              allowFullScreen
+            />
+          </div>
+        ) : (
+          <div className="aspect-video bg-black flex items-center justify-center">
+            <p className="text-purple-400 text-sm">Video unavailable</p>
+          </div>
+        )}
+      </div>
+
+      {/* Comments / live chat (read-only, no analytics) */}
+      <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-6 shadow-2xl">
+        <h3 className="text-xl font-black text-white flex items-center gap-2 mb-4">
+          <MessageSquare className="w-5 h-5 text-purple-400" />
+          Live Comments ({chats.length})
+        </h3>
+        <div className="space-y-3 max-h-[28rem] overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-purple-700/40 scrollbar-track-transparent">
+          {chats.length === 0 && (
+            <p className="text-purple-500 text-sm text-center py-6">
+              {stream.isLiveNow
+                ? "Waiting for comments…"
+                : "No comments available — this stream isn't live."}
+            </p>
+          )}
+          {chats.map((c, i) => (
+            <div
+              key={`${c.publishedAt}-${i}`}
+              className="p-4 bg-black/20 rounded-xl border border-purple-500/20 hover:border-purple-500/40 transition-all"
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className="w-8 h-8 bg-gradient-to-br from-red-600 to-rose-600 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0">
+                  {c.authorName?.charAt(0)?.toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-white font-semibold text-sm truncate">
+                    {c.authorName}
+                  </p>
+                  <p className="text-purple-400 text-xs">
+                    {new Date(c.publishedAt).toLocaleTimeString([], {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+              <p className="text-purple-100 text-sm">{c.message}</p>
+            </div>
+          ))}
+          <div ref={chatEndRef} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ─── YouTube Stream Card ──────────────────────────────────────────────────────
+
+const YoutubeStreamCard = ({
+  stream,
+  isSelected,
+  onSelect,
+}: {
+  stream: YoutubeStream;
+  isSelected: boolean;
+  onSelect: (s: YoutubeStream) => void;
+}) => (
+  <div
+    className={`border rounded-2xl overflow-hidden transition-all duration-300 group cursor-pointer ${
+      isSelected
+        ? "border-red-500/70 bg-red-900/20 shadow-lg shadow-red-500/20"
+        : "bg-black/30 border-purple-500/20 hover:border-purple-500/50"
+    }`}
+    onClick={() => onSelect(stream)}
+  >
+    <div className="relative aspect-video bg-slate-800 overflow-hidden">
+      {stream.thumbnail ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={stream.thumbnail}
+          alt={stream.title || "thumbnail"}
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center bg-purple-900/20">
+          <Youtube className="w-12 h-12 text-red-500/40" />
+        </div>
+      )}
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
+        <div className="w-12 h-12 rounded-full bg-red-600/80 flex items-center justify-center shadow-lg">
+          <Play className="w-6 h-6 text-white ml-0.5" />
+        </div>
+      </div>
+      {stream.isLiveNow && (
+        <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 bg-red-600/80 border border-red-500/50 rounded-full">
+          <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse" />
+          <span className="text-white text-xs font-bold">LIVE</span>
+        </div>
+      )}
+    </div>
+    <div className="p-4">
+      <p className="text-white font-semibold truncate text-sm">
+        {stream.title || "Untitled stream"}
+      </p>
+      <p className="text-purple-400 text-xs mt-0.5 truncate">
+        {stream.channelTitle || "—"}
+      </p>
+    </div>
+  </div>
+);
+
 // ─── Recording Card ───────────────────────────────────────────────────────────
 
 const RecordingCard = ({
   rec,
-  onWatch,
+  isSelected,
+  onSelect,
 }: {
   rec: Recording;
-  onWatch: (r: Recording) => void;
+  isSelected: boolean;
+  onSelect: (r: Recording) => void;
 }) => (
   <div
-    className="bg-black/30 border border-purple-500/20 rounded-2xl overflow-hidden hover:border-purple-500/50 transition-all duration-300 group cursor-pointer"
-    onClick={() => onWatch(rec)}
+    className={`border rounded-2xl overflow-hidden transition-all duration-300 group cursor-pointer ${
+      isSelected
+        ? "border-purple-500/70 bg-purple-900/30 shadow-lg shadow-purple-500/20"
+        : "bg-black/30 border-purple-500/20 hover:border-purple-500/50"
+    }`}
+    onClick={() => onSelect(rec)}
   >
     <div className="relative aspect-video bg-slate-800 overflow-hidden">
       {rec.thumbnailUrl ? (
@@ -533,9 +719,10 @@ const RecordingCard = ({
           <Film className="w-12 h-12 text-purple-500/40" />
         </div>
       )}
+      {/* Play overlay */}
       <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/40">
-        <div className="w-14 h-14 rounded-full bg-purple-600/80 flex items-center justify-center shadow-lg">
-          <Play className="w-7 h-7 text-white ml-1" />
+        <div className="w-12 h-12 rounded-full bg-purple-600/80 flex items-center justify-center shadow-lg">
+          <Play className="w-6 h-6 text-white ml-0.5" />
         </div>
       </div>
       {rec.durationSeconds && (
@@ -547,50 +734,44 @@ const RecordingCard = ({
         <PlayCircle className="w-3 h-3 text-white" />
         <span className="text-white text-xs font-semibold">REPLAY</span>
       </div>
+      {isSelected && (
+        <div className="absolute inset-0 border-2 border-purple-500/70 rounded-none pointer-events-none" />
+      )}
     </div>
     <div className="p-4">
-      <p className="text-white font-semibold truncate">{rec.title}</p>
-      <p className="text-purple-400 text-xs mt-1">{rec.host}</p>
+      <p className="text-white font-semibold truncate text-sm">{rec.title}</p>
+      <p className="text-purple-400 text-xs mt-0.5">{rec.host}</p>
       <div className="flex items-center gap-1 text-purple-500 text-xs mt-1">
         <Calendar className="w-3 h-3" />
         {fmtDate(rec.startedAt)}
       </div>
-      {rec.description && (
-        <p className="text-purple-300/70 text-xs mt-2 line-clamp-2">
-          {rec.description}
-        </p>
-      )}
-      {rec.tags?.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-3">
-          {rec.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 rounded-full text-purple-300 text-xs"
-            >
-              #{tag}
-            </span>
-          ))}
-        </div>
-      )}
     </div>
   </div>
 );
 
-// ─── Program / Broadcast Card ─────────────────────────────────────────────────
+// ─── Broadcast Card ───────────────────────────────────────────────────────────
 
 const BroadcastCard = ({
   program,
+  isSelected,
   onListen,
 }: {
   program: Program;
+  isSelected: boolean;
   onListen: (p: Program) => void;
 }) => (
-  <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-5 shadow-xl hover:border-purple-500/60 transition-all duration-300 flex flex-col gap-3">
+  <div
+    className={`border rounded-2xl p-5 shadow-xl transition-all duration-300 flex flex-col gap-3 ${
+      isSelected
+        ? "bg-gradient-to-br from-purple-800/60 to-pink-800/60 border-purple-400/60 shadow-purple-500/30"
+        : "bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border-purple-500/30 hover:border-purple-500/60"
+    }`}
+  >
     {/* Top row */}
     <div className="flex items-start justify-between gap-3">
       <div className="flex items-center gap-3 min-w-0">
         <div className="relative shrink-0">
-          <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center">
+          <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
             <Mic className="w-5 h-5 text-white" />
           </div>
           {program.isLive && (
@@ -672,7 +853,7 @@ const BroadcastCard = ({
       {program.isLive ? (
         <>
           <Volume2 className="w-4 h-4" />
-          Listen Live
+          {isSelected ? "Now Playing" : "Listen Live"}
         </>
       ) : (
         <>
@@ -683,130 +864,6 @@ const BroadcastCard = ({
     </button>
   </div>
 );
-
-// ─── Live Session Viewer (GetStream Video) ────────────────────────────────────
-
-const LiveSessionViewer = ({
-  session,
-  onClose,
-}: {
-  session: LiveSession;
-  onClose: () => void;
-}) => {
-  const [client, setClient] = useState<StreamVideoClient | null>(null);
-  const [call, setCall] = useState<any | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let mounted = true;
-    const join = async () => {
-      try {
-        const res = await fetch(`${API_URL}/stream/token`, {
-          method: "POST",
-          headers: authHeader(),
-        });
-        const data: { success: boolean; message?: string } & StreamCreds =
-          await res.json();
-        if (!data.success) throw new Error(data.message);
-
-        const videoClient = new StreamVideoClient({
-          apiKey: data.apiKey,
-          user: { id: data.streamUserId, name: data.displayName },
-          token: data.token,
-        });
-
-        const streamCall = videoClient.call(
-          session.streamCallType || "livestream",
-          session.streamCallId,
-        );
-        await streamCall.join();
-
-        if (mounted) {
-          setClient(videoClient);
-          setCall(streamCall);
-          setLoading(false);
-        }
-      } catch (err: any) {
-        if (mounted) {
-          setError(err.message || "Failed to join stream");
-          setLoading(false);
-        }
-      }
-    };
-    join();
-    return () => {
-      mounted = false;
-    };
-  }, [session]);
-
-  useEffect(() => {
-    return () => {
-      call?.leave().catch(() => {});
-      client?.disconnectUser().catch(() => {});
-    };
-  }, [call, client]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center p-4"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
-    >
-      <div className="w-full max-w-5xl bg-slate-950 rounded-3xl overflow-hidden border border-red-500/30 shadow-2xl shadow-red-500/10 flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-red-500/20 bg-red-600/10">
-          <div className="flex items-center gap-3">
-            <div className="relative flex items-center gap-2 px-3 py-1.5 bg-red-500/20 border border-red-500/30 rounded-full">
-              <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-              <span className="text-red-400 text-sm font-bold tracking-widest">
-                LIVE
-              </span>
-            </div>
-            <div>
-              <p className="text-white font-bold">{session.title}</p>
-              <p className="text-purple-400 text-sm">
-                {session.hostDisplayName}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 bg-purple-600/20 hover:bg-red-600/30 border border-purple-500/30 hover:border-red-500/30 rounded-xl text-purple-300 hover:text-red-300 transition-all"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        <div className="aspect-video bg-black relative">
-          {loading && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-              <div className="w-12 h-12 border-4 border-purple-500 border-t-transparent rounded-full animate-spin" />
-              <p className="text-purple-300 text-sm">Joining stream…</p>
-            </div>
-          )}
-          {error && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-              <Signal className="w-12 h-12 text-red-400/50" />
-              <p className="text-red-300 font-semibold">{error}</p>
-              <button
-                onClick={onClose}
-                className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-xl text-purple-300 text-sm"
-              >
-                Close
-              </button>
-            </div>
-          )}
-          {!loading && !error && client && call && (
-            <StreamVideo client={client}>
-              <StreamCall call={call}>
-                <LivestreamLayout muted={false} showParticipantCount />
-              </StreamCall>
-            </StreamVideo>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-};
 
 // ─── Comments Section ─────────────────────────────────────────────────────────
 
@@ -845,6 +902,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
   useEffect(() => {
     fetchEngagements();
   }, [fetchEngagements]);
+
   useEffect(() => {
     if (showComments)
       commentsEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -910,11 +968,16 @@ const CommentsSection = ({ programId }: { programId: string }) => {
 
   return (
     <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-6 shadow-2xl">
+      {/* Like / Share */}
       <div className="flex items-center gap-3 mb-6">
         <button
           onClick={handleLike}
           disabled={hasLiked}
-          className={`flex items-center gap-2 px-5 py-2.5 border rounded-xl transition-all hover:scale-105 disabled:cursor-not-allowed ${hasLiked ? "bg-pink-600/30 border-pink-500/50" : "bg-pink-600/20 hover:bg-pink-600/30 border-pink-500/30"}`}
+          className={`flex items-center gap-2 px-5 py-2.5 border rounded-xl transition-all hover:scale-105 disabled:cursor-not-allowed ${
+            hasLiked
+              ? "bg-pink-600/30 border-pink-500/50"
+              : "bg-pink-600/20 hover:bg-pink-600/30 border-pink-500/30"
+          }`}
         >
           <Heart
             className={`w-5 h-5 ${hasLiked ? "text-pink-400 fill-pink-400" : "text-pink-400"}`}
@@ -930,6 +993,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
         </button>
       </div>
 
+      {/* Chat header */}
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-xl font-black text-white flex items-center gap-2">
           <MessageSquare className="w-5 h-5 text-purple-400" />
@@ -947,6 +1011,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
 
       {showComments && (
         <>
+          {/* Comment input */}
           <div className="flex gap-3 mb-4">
             <input
               type="text"
@@ -954,7 +1019,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
               onChange={(e) => setCommentText(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handlePostComment()}
               placeholder="Share your thoughts…"
-              className="flex-1 px-4 py-3 bg-black/30 border border-purple-500/30 rounded-xl text-white placeholder-purple-400/50 focus:outline-none focus:border-purple-500/60"
+              className="flex-1 px-4 py-3 bg-black/30 border border-purple-500/30 rounded-xl text-white placeholder-purple-400/50 focus:outline-none focus:border-purple-500/60 text-sm"
             />
             <button
               onClick={handlePostComment}
@@ -969,7 +1034,8 @@ const CommentsSection = ({ programId }: { programId: string }) => {
             </button>
           </div>
 
-          <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+          {/* Comments list */}
+          <div className="space-y-3 max-h-80 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-purple-700/40 scrollbar-track-transparent">
             {comments.length === 0 && (
               <p className="text-purple-500 text-sm text-center py-6">
                 No comments yet. Be the first!
@@ -984,7 +1050,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                      <div className="w-8 h-8 bg-gradient-to-br from-purple-600 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm shrink-0">
                         {e.user.fullName?.charAt(0)?.toUpperCase()}
                       </div>
                       <div>
@@ -1001,7 +1067,7 @@ const CommentsSection = ({ programId }: { programId: string }) => {
                     </div>
                     {e.comment?.sentiment && (
                       <div
-                        className={`flex items-center gap-1 px-2 py-1 ${sent.bg} rounded-full`}
+                        className={`flex items-center gap-1 px-2 py-1 ${sent.bg} rounded-full shrink-0`}
                       >
                         <span className={sent.color}>{sent.icon}</span>
                       </div>
@@ -1035,28 +1101,78 @@ const CommentsSection = ({ programId }: { programId: string }) => {
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const LiveStreamUsersPage = () => {
-  const [tab, setTab] = useState<"live" | "radio" | "replays">("live");
-  const [liveSessions, setLiveSessions] = useState<LiveSession[]>([]);
-  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [tab, setTab] = useState<"radio" | "youtube" | "replays">("radio");
+
+  // Radio state
   const [programs, setPrograms] = useState<Program[]>([]);
-  const [isLoadingLive, setIsLoadingLive] = useState(true);
-  const [isLoadingReplays, setIsLoadingReplays] = useState(false);
   const [isLoadingPrograms, setIsLoadingPrograms] = useState(false);
-  const [watchingLive, setWatchingLive] = useState<LiveSession | null>(null);
-  const [watchingRec, setWatchingRec] = useState<Recording | null>(null);
-  const [listeningTo, setListeningTo] = useState<Program | null>(null);
+  const [activeProgram, setActiveProgram] = useState<Program | null>(null); // currently playing
   const [selectedProgramForChat, setSelectedProgramForChat] =
     useState<Program | null>(null);
+
+  // YouTube live state
+  const [youtubeStreams, setYoutubeStreams] = useState<YoutubeStream[]>([]);
+  const [isLoadingYoutube, setIsLoadingYoutube] = useState(false);
+  const [selectedYoutubeStream, setSelectedYoutubeStream] =
+    useState<YoutubeStream | null>(null);
+
+  // Replays state
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const [isLoadingReplays, setIsLoadingReplays] = useState(false);
+  const [selectedRecording, setSelectedRecording] = useState<Recording | null>(
+    null,
+  );
+
   const socketRef = useRef<Socket | null>(null);
 
-  // ── Fetch live sessions (GetStream video) ─────────────────────────────────
-  const fetchLive = useCallback(async () => {
+  // ── Fetch radio/broadcast programs ────────────────────────────────────────
+  const fetchPrograms = useCallback(async () => {
+    setIsLoadingPrograms(true);
     try {
-      const res = await fetch(`${API_URL}/stream/sessions/live`);
+      const res = await fetch(
+        `${API_URL}/programs?sortBy=isLive&sortOrder=desc&limit=50`,
+      );
       const data = await res.json();
-      if (data.success) setLiveSessions(data.sessions || []);
+      if (data.programs) {
+        const sorted = [...(data.programs as Program[])].sort((a, b) => {
+          if (a.isLive && !b.isLive) return -1;
+          if (!a.isLive && b.isLive) return 1;
+          return (
+            new Date(a.scheduleStartTime).getTime() -
+            new Date(b.scheduleStartTime).getTime()
+          );
+        });
+        setPrograms(sorted);
+      }
     } catch {
-      toast.error("Failed to fetch live sessions");
+      toast.error("Failed to fetch broadcasts");
+    } finally {
+      setIsLoadingPrograms(false);
+    }
+  }, []);
+
+  // ── Fetch monitored YouTube live streams ──────────────────────────────────
+  const fetchYoutubeStreams = useCallback(async () => {
+    setIsLoadingYoutube(true);
+    try {
+      const data = await getStreams({ limit: 50 });
+      const streams = data.streams || [];
+      const sorted = [...streams].sort((a, b) => {
+        if (a.isLiveNow && !b.isLiveNow) return -1;
+        if (!a.isLiveNow && b.isLiveNow) return 1;
+        return (
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+      });
+      setYoutubeStreams(sorted);
+      setSelectedYoutubeStream((prev) => {
+        if (!prev) return sorted.find((s) => s.isLiveNow) || null;
+        return sorted.find((s) => s._id === prev._id) || prev;
+      });
+    } catch {
+      toast.error("Failed to fetch YouTube streams");
+    } finally {
+      setIsLoadingYoutube(false);
     }
   }, []);
 
@@ -1074,71 +1190,43 @@ const LiveStreamUsersPage = () => {
     }
   }, []);
 
-  // ── Fetch radio/broadcast programs ────────────────────────────────────────
-  const fetchPrograms = useCallback(async () => {
-    setIsLoadingPrograms(true);
-    try {
-      // Fetch all programs (live ones first by sorting)
-      const res = await fetch(
-        `${API_URL}/programs?sortBy=isLive&sortOrder=desc&limit=50`,
-      );
-      const data = await res.json();
-      if (data.programs) {
-        // Sort: live first, then scheduled
-        const sorted = [...(data.programs as Program[])].sort((a, b) => {
-          if (a.isLive && !b.isLive) return -1;
-          if (!a.isLive && b.isLive) return 1;
-          if (a.status === "live") return -1;
-          if (b.status === "live") return 1;
-          return (
-            new Date(a.scheduleStartTime).getTime() -
-            new Date(b.scheduleStartTime).getTime()
-          );
-        });
-        setPrograms(sorted);
-      }
-    } catch {
-      toast.error("Failed to fetch broadcasts");
-    } finally {
-      setIsLoadingPrograms(false);
-    }
-  }, []);
-
-  // ── Initial load ──────────────────────────────────────────────────────────
+  // Initial load
   useEffect(() => {
-    const load = async () => {
-      setIsLoadingLive(true);
-      await fetchLive();
-      setIsLoadingLive(false);
-    };
-    load();
-    const interval = setInterval(fetchLive, 30_000);
-    return () => clearInterval(interval);
-  }, [fetchLive]);
+    fetchPrograms();
+  }, [fetchPrograms]);
 
   useEffect(() => {
     if (tab === "replays" && recordings.length === 0) fetchRecordings();
   }, [tab, recordings.length, fetchRecordings]);
 
   useEffect(() => {
-    if (tab === "radio" && programs.length === 0) fetchPrograms();
-  }, [tab, programs.length, fetchPrograms]);
+    if (tab === "youtube" && youtubeStreams.length === 0)
+      fetchYoutubeStreams();
+  }, [tab, youtubeStreams.length, fetchYoutubeStreams]);
 
-  // ── WebSocket for real-time events ────────────────────────────────────────
+  // WebSocket
   useEffect(() => {
     socketRef.current = io(API_URL as string);
-    socketRef.current.on("session-started", fetchLive);
-    socketRef.current.on("session-ended", fetchLive);
     socketRef.current.on("stream-status-updated", fetchPrograms);
     return () => {
       socketRef.current?.disconnect();
     };
-  }, [fetchLive, fetchPrograms]);
+  }, [fetchPrograms]);
 
-  // Handle program listen — open player and set chat if it has a program ID
+  // Handle pressing "Listen Live" on a broadcast card
   const handleListen = (program: Program) => {
-    setListeningTo(program);
+    // Toggle off if clicking the same one again
+    if (activeProgram?._id === program._id) {
+      setActiveProgram(null);
+    } else {
+      setActiveProgram(program);
+    }
     setSelectedProgramForChat(program);
+  };
+
+  // Handle clicking a recording card
+  const handleSelectRecording = (rec: Recording) => {
+    setSelectedRecording((prev) => (prev?._id === rec._id ? null : rec));
   };
 
   const livePrograms = programs.filter((p) => p.isLive);
@@ -1147,25 +1235,8 @@ const LiveStreamUsersPage = () => {
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 pb-10">
-      {/* Modals */}
-      {watchingLive && (
-        <LiveSessionViewer
-          session={watchingLive}
-          onClose={() => setWatchingLive(null)}
-        />
-      )}
-      {watchingRec && (
-        <VideoModal rec={watchingRec} onClose={() => setWatchingRec(null)} />
-      )}
-      {listeningTo && (
-        <RadioPlayerModal
-          program={listeningTo}
-          onClose={() => setListeningTo(null)}
-        />
-      )}
-
-      {/* Header */}
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-900 pb-12">
+      {/* ── Header ── */}
       <header className="bg-gradient-to-r from-purple-900/40 to-pink-900/40 backdrop-blur-xl border-b border-purple-500/30 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
@@ -1173,14 +1244,16 @@ const LiveStreamUsersPage = () => {
               <div className="w-12 h-12 bg-gradient-to-br from-purple-600 to-pink-600 rounded-xl flex items-center justify-center shadow-lg">
                 <Radio className="w-7 h-7 text-white" />
               </div>
-              {(liveSessions.length > 0 || livePrograms.length > 0) && (
+              {livePrograms.length > 0 && (
                 <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-slate-950 animate-pulse" />
               )}
             </div>
             <div>
               <h1 className="text-2xl font-black text-white">Broadcast Hub</h1>
               <p className="text-purple-300 text-sm font-semibold">
-                {liveSessions.length + livePrograms.length} live now
+                {livePrograms.length > 0
+                  ? `${livePrograms.length} on air now`
+                  : "Tune in anytime"}
               </p>
             </div>
           </div>
@@ -1189,32 +1262,44 @@ const LiveStreamUsersPage = () => {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-1 bg-black/30 p-1 rounded-2xl border border-purple-500/20">
               <button
-                onClick={() => setTab("live")}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all duration-300 ${tab === "live" ? "bg-red-600 text-white shadow-lg shadow-red-500/30" : "text-purple-400 hover:text-white"}`}
-              >
-                <Tv2 className="w-4 h-4" />
-                Video
-                {liveSessions.length > 0 && (
-                  <span className="px-1.5 py-0.5 bg-red-500/80 rounded-full text-white text-xs">
-                    {liveSessions.length}
-                  </span>
-                )}
-              </button>
-              <button
                 onClick={() => setTab("radio")}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all duration-300 ${tab === "radio" ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30" : "text-purple-400 hover:text-white"}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 ${
+                  tab === "radio"
+                    ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                    : "text-purple-400 hover:text-white"
+                }`}
               >
                 <Radio className="w-4 h-4" />
                 Radio
                 {livePrograms.length > 0 && (
-                  <span className="px-1.5 py-0.5 bg-red-500/80 rounded-full text-white text-xs">
+                  <span className="px-1.5 py-0.5 bg-red-500/80 rounded-full text-white text-xs leading-none">
                     {livePrograms.length}
                   </span>
                 )}
               </button>
               <button
+                onClick={() => setTab("youtube")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 ${
+                  tab === "youtube"
+                    ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                    : "text-purple-400 hover:text-white"
+                }`}
+              >
+                <Youtube className="w-4 h-4" />
+                YouTube Live
+                {youtubeStreams.filter((s) => s.isLiveNow).length > 0 && (
+                  <span className="px-1.5 py-0.5 bg-red-500/80 rounded-full text-white text-xs leading-none">
+                    {youtubeStreams.filter((s) => s.isLiveNow).length}
+                  </span>
+                )}
+              </button>
+              <button
                 onClick={() => setTab("replays")}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-bold transition-all duration-300 ${tab === "replays" ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30" : "text-purple-400 hover:text-white"}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all duration-300 ${
+                  tab === "replays"
+                    ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                    : "text-purple-400 hover:text-white"
+                }`}
               >
                 <Film className="w-4 h-4" />
                 Replays
@@ -1222,10 +1307,10 @@ const LiveStreamUsersPage = () => {
             </div>
             <button
               onClick={
-                tab === "live"
-                  ? fetchLive
-                  : tab === "radio"
-                    ? fetchPrograms
+                tab === "radio"
+                  ? fetchPrograms
+                  : tab === "youtube"
+                    ? fetchYoutubeStreams
                     : fetchRecordings
               }
               className="p-2.5 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 transition-all"
@@ -1238,130 +1323,7 @@ const LiveStreamUsersPage = () => {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {/* ── VIDEO LIVE tab ── */}
-        {tab === "live" && (
-          <>
-            {isLoadingLive ? (
-              <div className="flex items-center justify-center py-32">
-                <div className="text-center">
-                  <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-                  <p className="text-purple-300 text-lg font-semibold">
-                    Loading live sessions…
-                  </p>
-                </div>
-              </div>
-            ) : liveSessions.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-32 text-center">
-                <div className="w-24 h-24 bg-purple-600/20 border border-purple-500/30 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <Tv2 className="w-12 h-12 text-purple-400/50" />
-                </div>
-                <h3 className="text-2xl font-black text-white mb-3">
-                  No Live Video Sessions
-                </h3>
-                <p className="text-purple-300 max-w-sm">
-                  No video broadcasts right now. Try the Radio tab for audio
-                  broadcasts or browse past replays.
-                </p>
-                <div className="flex items-center gap-3 mt-6">
-                  <button
-                    onClick={() => setTab("radio")}
-                    className="flex items-center gap-2 px-5 py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 font-semibold transition-all"
-                  >
-                    <Radio className="w-4 h-4" />
-                    Radio Broadcasts
-                  </button>
-                  <button
-                    onClick={() => setTab("replays")}
-                    className="flex items-center gap-2 px-5 py-3 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 font-semibold transition-all"
-                  >
-                    <Film className="w-4 h-4" />
-                    Watch Replays
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-1 space-y-4">
-                  <h2 className="text-white font-black text-lg flex items-center gap-2">
-                    <Signal className="w-5 h-5 text-red-400" />
-                    Live Now
-                  </h2>
-                  {liveSessions.map((session) => (
-                    <div
-                      key={session._id}
-                      className="p-5 bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-2xl shadow-xl hover:border-purple-500/60 transition-all duration-300"
-                    >
-                      <div className="flex items-center justify-between mb-3">
-                        <div className="flex items-center gap-2 px-2.5 py-1 bg-red-500/20 border border-red-500/30 rounded-full">
-                          <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse" />
-                          <span className="text-red-400 text-xs font-bold tracking-widest">
-                            LIVE
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1 text-purple-400 text-xs">
-                          <Clock className="w-3 h-3" />
-                          {fmtDate(session.startedAt)}
-                        </div>
-                      </div>
-                      <h3 className="text-white font-bold text-lg mb-1">
-                        {session.title}
-                      </h3>
-                      <p className="text-purple-300 text-sm mb-3">
-                        {session.hostDisplayName}
-                      </p>
-                      {session.description && (
-                        <p className="text-purple-400/80 text-xs mb-3 line-clamp-2">
-                          {session.description}
-                        </p>
-                      )}
-                      {session.tags?.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-4">
-                          {session.tags.slice(0, 3).map((t) => (
-                            <span
-                              key={t}
-                              className="px-2 py-0.5 bg-purple-500/20 border border-purple-500/30 rounded-full text-purple-300 text-xs"
-                            >
-                              #{t}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <button
-                        onClick={() => setWatchingLive(session)}
-                        className="w-full py-3 bg-gradient-to-br from-red-600 to-rose-600 hover:from-red-500 hover:to-rose-500 rounded-xl text-white font-bold flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 transition-all hover:scale-105"
-                      >
-                        <Tv2 className="w-5 h-5" />
-                        Watch Live
-                      </button>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="lg:col-span-2">
-                  {liveSessions[0]?.linkedProgram ? (
-                    <CommentsSection
-                      programId={liveSessions[0].linkedProgram}
-                    />
-                  ) : (
-                    <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-12 flex flex-col items-center justify-center text-center h-full min-h-[300px]">
-                      <Tv2 className="w-16 h-16 text-purple-400/40 mb-4" />
-                      <h3 className="text-white font-black text-xl mb-2">
-                        Select a session to watch
-                      </h3>
-                      <p className="text-purple-400 text-sm max-w-xs">
-                        Pick a live session on the left and click{" "}
-                        <strong className="text-purple-300">Watch Live</strong>{" "}
-                        to open it.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ── RADIO tab ── */}
+        {/* ══════════════════ RADIO TAB ══════════════════ */}
         {tab === "radio" && (
           <>
             {isLoadingPrograms ? (
@@ -1375,9 +1337,8 @@ const LiveStreamUsersPage = () => {
               </div>
             ) : (
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left: program cards */}
+                {/* ── Left: program list ── */}
                 <div className="lg:col-span-1 space-y-6">
-                  {/* Live programs */}
                   {livePrograms.length > 0 && (
                     <div>
                       <h2 className="text-white font-black text-lg flex items-center gap-2 mb-4">
@@ -1389,6 +1350,7 @@ const LiveStreamUsersPage = () => {
                           <BroadcastCard
                             key={p._id}
                             program={p}
+                            isSelected={activeProgram?._id === p._id}
                             onListen={handleListen}
                           />
                         ))}
@@ -1396,7 +1358,6 @@ const LiveStreamUsersPage = () => {
                     </div>
                   )}
 
-                  {/* Upcoming / scheduled programs */}
                   {upcomingPrograms.length > 0 && (
                     <div>
                       <h2 className="text-white font-black text-lg flex items-center gap-2 mb-4">
@@ -1408,6 +1369,7 @@ const LiveStreamUsersPage = () => {
                           <BroadcastCard
                             key={p._id}
                             program={p}
+                            isSelected={activeProgram?._id === p._id}
                             onListen={handleListen}
                           />
                         ))}
@@ -1428,12 +1390,22 @@ const LiveStreamUsersPage = () => {
                   )}
                 </div>
 
-                {/* Right: comments for selected program */}
-                <div className="lg:col-span-2">
+                {/* ── Right: inline player + chat ── */}
+                <div className="lg:col-span-2 space-y-5">
+                  {/* Inline player — only shown when a program is active */}
+                  {activeProgram && (
+                    <InlineRadioPlayer
+                      key={activeProgram._id}
+                      program={activeProgram}
+                      onStop={() => setActiveProgram(null)}
+                    />
+                  )}
+
+                  {/* Comments / chat */}
                   {selectedProgramForChat ? (
                     <div className="space-y-4">
-                      {/* Selected program info banner */}
-                      <div className="flex items-center justify-between p-4 bg-purple-900/30 border border-purple-500/30 rounded-2xl">
+                      {/* Program info bar */}
+                      <div className="flex items-center justify-between p-4 bg-purple-900/30 border border-purple-500/30 rounded-2xl flex-wrap gap-3">
                         <div>
                           <p className="text-white font-bold">
                             {selectedProgramForChat.title}
@@ -1442,24 +1414,28 @@ const LiveStreamUsersPage = () => {
                             {selectedProgramForChat.host}
                           </p>
                         </div>
-                        <button
-                          onClick={() => handleListen(selectedProgramForChat)}
-                          className={`flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold text-sm transition-all ${
-                            selectedProgramForChat.isLive
-                              ? "bg-red-600/80 hover:bg-red-600"
-                              : "bg-purple-600/80 hover:bg-purple-600"
-                          }`}
-                        >
-                          <Volume2 className="w-4 h-4" />
-                          {selectedProgramForChat.isLive
-                            ? "Listen Live"
-                            : "Open"}
-                        </button>
+                        {/* If not playing yet, show a play button in the info bar too */}
+                        {activeProgram?._id !== selectedProgramForChat._id && (
+                          <button
+                            onClick={() => handleListen(selectedProgramForChat)}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-white font-semibold text-sm transition-all ${
+                              selectedProgramForChat.isLive
+                                ? "bg-red-600/80 hover:bg-red-600"
+                                : "bg-purple-600/80 hover:bg-purple-600"
+                            }`}
+                          >
+                            <Play className="w-4 h-4" />
+                            {selectedProgramForChat.isLive
+                              ? "Listen Live"
+                              : "Open"}
+                          </button>
+                        )}
                       </div>
                       <CommentsSection programId={selectedProgramForChat._id} />
                     </div>
                   ) : (
-                    <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-12 flex flex-col items-center justify-center text-center h-full min-h-[300px]">
+                    /* Placeholder when nothing selected */
+                    <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-12 flex flex-col items-center justify-center text-center min-h-[300px]">
                       <Radio className="w-16 h-16 text-purple-400/40 mb-4" />
                       <h3 className="text-white font-black text-xl mb-2">
                         Select a broadcast
@@ -1467,7 +1443,8 @@ const LiveStreamUsersPage = () => {
                       <p className="text-purple-400 text-sm max-w-xs">
                         Click{" "}
                         <strong className="text-purple-300">Listen Live</strong>{" "}
-                        on any program to open the player and live chat.
+                        on any program to start the player and join the live
+                        chat — all on the same page.
                       </p>
                     </div>
                   )}
@@ -1477,7 +1454,76 @@ const LiveStreamUsersPage = () => {
           </>
         )}
 
-        {/* ── REPLAYS tab ── */}
+        {/* ══════════════════ YOUTUBE LIVE TAB ══════════════════ */}
+        {tab === "youtube" && (
+          <>
+            {isLoadingYoutube ? (
+              <div className="flex items-center justify-center py-32">
+                <div className="text-center">
+                  <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+                  <p className="text-purple-300 text-lg font-semibold">
+                    Loading YouTube streams…
+                  </p>
+                </div>
+              </div>
+            ) : youtubeStreams.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-24 text-center">
+                <Youtube className="w-16 h-16 text-purple-500/30 mb-4" />
+                <p className="text-white font-bold text-lg">
+                  No YouTube live streams yet
+                </p>
+                <p className="text-purple-400 text-sm mt-1 max-w-xs">
+                  Check back soon — streams will appear here once they go
+                  live on YouTube.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* ── Left: stream list ── */}
+                <div className="lg:col-span-1 space-y-3">
+                  <h2 className="text-white font-black text-lg flex items-center gap-2 mb-2">
+                    <Youtube className="w-5 h-5 text-red-500" />
+                    {youtubeStreams.length} Stream
+                    {youtubeStreams.length !== 1 ? "s" : ""}
+                  </h2>
+                  <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+                    {youtubeStreams.map((s) => (
+                      <YoutubeStreamCard
+                        key={s._id}
+                        stream={s}
+                        isSelected={selectedYoutubeStream?._id === s._id}
+                        onSelect={setSelectedYoutubeStream}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Right: video + comments ── */}
+                <div className="lg:col-span-2">
+                  {selectedYoutubeStream ? (
+                    <YoutubeLivePlayer
+                      key={selectedYoutubeStream._id}
+                      stream={selectedYoutubeStream}
+                    />
+                  ) : (
+                    <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-12 flex flex-col items-center justify-center text-center min-h-[400px]">
+                      <Youtube className="w-16 h-16 text-red-400/40 mb-4" />
+                      <h3 className="text-white font-black text-xl mb-2">
+                        Select a stream
+                      </h3>
+                      <p className="text-purple-400 text-sm max-w-xs">
+                        Pick any stream on the left to watch the video and
+                        follow the live comments here.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ══════════════════ REPLAYS TAB ══════════════════ */}
         {tab === "replays" && (
           <>
             <div className="flex items-center justify-between mb-8">
@@ -1516,14 +1562,46 @@ const LiveStreamUsersPage = () => {
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                {recordings.map((rec) => (
-                  <RecordingCard
-                    key={rec._id}
-                    rec={rec}
-                    onWatch={setWatchingRec}
-                  />
-                ))}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* ── Left: recording card grid ── */}
+                <div className="lg:col-span-1 space-y-4">
+                  <h2 className="text-white font-black text-lg flex items-center gap-2 mb-2">
+                    <Film className="w-5 h-5 text-purple-400" />
+                    {recordings.length} Recording
+                    {recordings.length !== 1 ? "s" : ""}
+                  </h2>
+                  <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
+                    {recordings.map((rec) => (
+                      <RecordingCard
+                        key={rec._id}
+                        rec={rec}
+                        isSelected={selectedRecording?._id === rec._id}
+                        onSelect={handleSelectRecording}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Right: inline video player ── */}
+                <div className="lg:col-span-2">
+                  {selectedRecording ? (
+                    <InlineReplayPlayer
+                      key={selectedRecording._id}
+                      rec={selectedRecording}
+                      onClose={() => setSelectedRecording(null)}
+                    />
+                  ) : (
+                    <div className="bg-gradient-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-12 flex flex-col items-center justify-center text-center min-h-[400px]">
+                      <PlayCircle className="w-16 h-16 text-purple-400/40 mb-4" />
+                      <h3 className="text-white font-black text-xl mb-2">
+                        Select a recording
+                      </h3>
+                      <p className="text-purple-400 text-sm max-w-xs">
+                        Pick any recording on the left to play it here.
+                      </p>
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </>

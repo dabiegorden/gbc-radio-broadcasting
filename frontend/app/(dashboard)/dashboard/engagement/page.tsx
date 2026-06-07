@@ -737,7 +737,7 @@ const AdminEngagementPage = () => {
                             {engagement.user.fullName}
                           </h4>
                           <p className="text-purple-400 text-sm">
-                            {engagement.program.title}
+                            {engagement?.program?.title}
                           </p>
                         </div>
                         <span className="px-3 py-1 bg-purple-500/20 border border-purple-500/30 rounded-full text-purple-300 text-xs font-semibold">

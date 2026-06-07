@@ -68,7 +68,7 @@ interface TrendData {
 }
 
 const COLORS = {
-  primary: ["#f97316", "#fb923c", "#fdba74", "#fed7aa"],
+  primary: ["#a855f7", "#c084fc", "#d8b4fe", "#f3e8ff"],
   sentiment: {
     positive: "#22c55e",
     neutral: "#eab308",
@@ -224,10 +224,10 @@ const AdminAnalyticsPage = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-linear-to-br from-slate-950 via-orange-950 to-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-linear-to-br from-slate-950 via-purple-950 to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="w-16 h-16 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-orange-300 text-lg font-semibold">
+          <div className="w-16 h-16 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-purple-300 text-lg font-semibold">
             Loading analytics...
           </p>
         </div>
@@ -236,15 +236,15 @@ const AdminAnalyticsPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-orange-950 to-slate-900 p-6">
+    <div className="min-h-screen bg-linear-to-br from-slate-950 via-purple-950 to-slate-900 p-6">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-8">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-6">
           <div>
-            <h1 className="text-4xl font-black text-transparent bg-clip-text bg-linear-to-r from-orange-400 via-amber-400 to-orange-400 mb-2">
+            <h1 className="text-4xl font-black text-transparent bg-clip-text bg-linear-to-r from-purple-400 via-pink-400 to-purple-400 mb-2">
               Analytics & Insights
             </h1>
-            <p className="text-orange-300 text-lg">
+            <p className="text-purple-300 text-lg">
               Comprehensive performance metrics and predictions
             </p>
           </div>
@@ -252,7 +252,7 @@ const AdminAnalyticsPage = () => {
           <div className="flex flex-wrap gap-3">
             <button
               onClick={handleRefresh}
-              className="px-4 py-2 bg-orange-600/20 hover:bg-orange-600/30 border border-orange-500/30 rounded-xl text-orange-300 font-semibold flex items-center gap-2 transition-all duration-300"
+              className="px-4 py-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 rounded-xl text-purple-300 font-semibold flex items-center gap-2 transition-all duration-300"
             >
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -261,7 +261,7 @@ const AdminAnalyticsPage = () => {
             <button
               onClick={downloadPDFReport}
               disabled={isDownloading}
-              className="px-4 py-2 bg-linear-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 rounded-xl text-white font-semibold flex items-center gap-2 transition-all duration-300 hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 bg-linear-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl text-white font-semibold flex items-center gap-2 transition-all duration-300 hover:scale-105 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isDownloading ? (
                 <>
@@ -279,10 +279,10 @@ const AdminAnalyticsPage = () => {
         </div>
 
         {/* Date Range Filter */}
-        <div className="bg-linear-to-br from-slate-900/40 to-orange-900/40 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6">
+        <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-orange-300 font-semibold mb-2 text-sm">
+              <label className="block text-purple-300 font-semibold mb-2 text-sm">
                 Start Date
               </label>
               <input
@@ -294,12 +294,12 @@ const AdminAnalyticsPage = () => {
                     startDate: e.target.value,
                   }))
                 }
-                className="w-full px-4 py-2 bg-slate-900/50 border border-orange-500/30 rounded-xl text-white focus:outline-none focus:border-orange-500/50"
+                className="w-full px-4 py-2 bg-slate-900/50 border border-purple-500/30 rounded-xl text-white focus:outline-none focus:border-purple-500/50"
               />
             </div>
 
             <div>
-              <label className="block text-orange-300 font-semibold mb-2 text-sm">
+              <label className="block text-purple-300 font-semibold mb-2 text-sm">
                 End Date
               </label>
               <input
@@ -308,18 +308,18 @@ const AdminAnalyticsPage = () => {
                 onChange={(e) =>
                   setDateRange((prev) => ({ ...prev, endDate: e.target.value }))
                 }
-                className="w-full px-4 py-2 bg-slate-900/50 border border-orange-500/30 rounded-xl text-white focus:outline-none focus:border-orange-500/50"
+                className="w-full px-4 py-2 bg-slate-900/50 border border-purple-500/30 rounded-xl text-white focus:outline-none focus:border-purple-500/50"
               />
             </div>
 
             <div>
-              <label className="block text-orange-300 font-semibold mb-2 text-sm">
+              <label className="block text-purple-300 font-semibold mb-2 text-sm">
                 Trend Period (Days)
               </label>
               <select
                 value={trendPeriod}
                 onChange={(e) => setTrendPeriod(e.target.value)}
-                className="w-full px-4 py-2 bg-slate-900/50 border border-orange-500/30 rounded-xl text-white focus:outline-none focus:border-orange-500/50 appearance-none cursor-pointer"
+                className="w-full px-4 py-2 bg-slate-900/50 border border-purple-500/30 rounded-xl text-white focus:outline-none focus:border-purple-500/50 appearance-none cursor-pointer"
               >
                 <option value="7">Last 7 Days</option>
                 <option value="14">Last 14 Days</option>
@@ -336,17 +336,17 @@ const AdminAnalyticsPage = () => {
         {/* Key Metrics */}
         {analytics && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-linear-to-br from-orange-900/40 to-amber-900/40 backdrop-blur-xl border border-orange-500/30 rounded-2xl p-6 hover:scale-105 transition-transform duration-300">
+            <div className="bg-linear-to-br from-purple-900/40 to-pink-900/40 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-6 hover:scale-105 transition-transform duration-300">
               <div className="flex items-center justify-between mb-3">
-                <span className="text-orange-300 text-sm font-semibold">
+                <span className="text-purple-300 text-sm font-semibold">
                   Total Users
                 </span>
-                <Users className="w-5 h-5 text-orange-400" />
+                <Users className="w-5 h-5 text-purple-400" />
               </div>
               <p className="text-4xl font-black text-white mb-1">
                 {analytics.summary?.totalUsers ?? 0}
               </p>
-              <p className="text-orange-400 text-sm">
+              <p className="text-purple-400 text-sm">
                 {analytics.summary?.activeUsers ?? 0} active
               </p>
             </div>
@@ -400,16 +400,16 @@ const AdminAnalyticsPage = () => {
         )}
 
         {/* Engagement Trends Chart */}
-        <div className="bg-linear-to-br from-slate-900/40 to-orange-900/40 backdrop-blur-xl border border-orange-500/30 rounded-3xl p-8">
+        <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8">
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-3 bg-orange-500/20 rounded-xl">
-              <TrendingUp className="w-6 h-6 text-orange-400" />
+            <div className="p-3 bg-purple-500/20 rounded-xl">
+              <TrendingUp className="w-6 h-6 text-purple-400" />
             </div>
             <div>
               <h3 className="text-2xl font-black text-white">
                 Engagement Trends
               </h3>
-              <p className="text-orange-300 text-sm">
+              <p className="text-purple-300 text-sm">
                 Daily engagement over time
               </p>
             </div>
@@ -425,24 +425,24 @@ const AdminAnalyticsPage = () => {
                   x2="0"
                   y2="1"
                 >
-                  <stop offset="5%" stopColor="#f97316" stopOpacity={0.8} />
-                  <stop offset="95%" stopColor="#f97316" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#a855f7" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="_id" stroke="#fb923c" />
-              <YAxis stroke="#fb923c" />
+              <XAxis dataKey="_id" stroke="#c084fc" />
+              <YAxis stroke="#c084fc" />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "#1e293b",
-                  border: "1px solid #f97316",
+                  border: "1px solid #a855f7",
                   borderRadius: "12px",
                 }}
               />
               <Area
                 type="monotone"
                 dataKey="totalEngagements"
-                stroke="#f97316"
+                stroke="#a855f7"
                 fillOpacity={1}
                 fill="url(#colorEngagement)"
               />
@@ -453,7 +453,7 @@ const AdminAnalyticsPage = () => {
         {/* Sentiment Analysis & Engagement Breakdown */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Sentiment Pie Chart */}
-          <div className="bg-linear-to-br from-slate-900/40 to-orange-900/40 backdrop-blur-xl border border-orange-500/30 rounded-3xl p-8">
+          <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-3 bg-green-500/20 rounded-xl">
                 <Heart className="w-6 h-6 text-green-400" />
@@ -462,7 +462,7 @@ const AdminAnalyticsPage = () => {
                 <h3 className="text-2xl font-black text-white">
                   Sentiment Analysis
                 </h3>
-                <p className="text-orange-300 text-sm">
+                <p className="text-purple-300 text-sm">
                   User sentiment breakdown
                 </p>
               </div>
@@ -497,21 +497,21 @@ const AdminAnalyticsPage = () => {
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "#1e293b",
-                      border: "1px solid #f97316",
+                      border: "1px solid #a855f7",
                       borderRadius: "12px",
                     }}
                   />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-75 flex items-center justify-center text-orange-400">
+              <div className="h-75 flex items-center justify-center text-purple-400">
                 No sentiment data available
               </div>
             )}
           </div>
 
           {/* Engagement Type Breakdown */}
-          <div className="bg-linear-to-br from-slate-900/40 to-orange-900/40 backdrop-blur-xl border border-orange-500/30 rounded-3xl p-8">
+          <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-3 bg-purple-500/20 rounded-xl">
                 <PieChartIcon className="w-6 h-6 text-purple-400" />
@@ -520,7 +520,7 @@ const AdminAnalyticsPage = () => {
                 <h3 className="text-2xl font-black text-white">
                   Engagement Types
                 </h3>
-                <p className="text-orange-300 text-sm">Breakdown by activity</p>
+                <p className="text-purple-300 text-sm">Breakdown by activity</p>
               </div>
             </div>
 
@@ -551,14 +551,14 @@ const AdminAnalyticsPage = () => {
                   <Tooltip
                     contentStyle={{
                       backgroundColor: "#1e293b",
-                      border: "1px solid #f97316",
+                      border: "1px solid #a855f7",
                       borderRadius: "12px",
                     }}
                   />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-75 flex items-center justify-center text-orange-400">
+              <div className="h-75 flex items-center justify-center text-purple-400">
                 No engagement data available
               </div>
             )}
@@ -566,7 +566,7 @@ const AdminAnalyticsPage = () => {
         </div>
 
         {/* Category Performance */}
-        <div className="bg-linear-to-br from-slate-900/40 to-orange-900/40 backdrop-blur-xl border border-orange-500/30 rounded-3xl p-8">
+        <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-3 bg-blue-500/20 rounded-xl">
               <BarChart3 className="w-6 h-6 text-blue-400" />
@@ -575,7 +575,7 @@ const AdminAnalyticsPage = () => {
               <h3 className="text-2xl font-black text-white">
                 Category Performance
               </h3>
-              <p className="text-orange-300 text-sm">
+              <p className="text-purple-300 text-sm">
                 Programs and listeners by category
               </p>
             </div>
@@ -585,29 +585,29 @@ const AdminAnalyticsPage = () => {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={categoryData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-                <XAxis dataKey="category" stroke="#fb923c" />
-                <YAxis stroke="#fb923c" />
+                <XAxis dataKey="category" stroke="#c084fc" />
+                <YAxis stroke="#c084fc" />
                 <Tooltip
                   contentStyle={{
                     backgroundColor: "#1e293b",
-                    border: "1px solid #f97316",
+                    border: "1px solid #a855f7",
                     borderRadius: "12px",
                   }}
                 />
                 <Legend />
                 <Bar dataKey="programs" fill="#3b82f6" name="Programs" />
-                <Bar dataKey="listeners" fill="#f97316" name="Listeners" />
+                <Bar dataKey="listeners" fill="#a855f7" name="Listeners" />
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-75 flex items-center justify-center text-orange-400">
+            <div className="h-75 flex items-center justify-center text-purple-400">
               No category data available
             </div>
           )}
         </div>
 
         {/* Sentiment Trend Line Chart */}
-        <div className="bg-linear-to-br from-slate-900/40 to-orange-900/40 backdrop-blur-xl border border-orange-500/30 rounded-3xl p-8">
+        <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-8">
           <div className="flex items-center gap-3 mb-6">
             <div className="p-3 bg-purple-500/20 rounded-xl">
               <Activity className="w-6 h-6 text-purple-400" />
@@ -616,7 +616,7 @@ const AdminAnalyticsPage = () => {
               <h3 className="text-2xl font-black text-white">
                 Sentiment Timeline
               </h3>
-              <p className="text-orange-300 text-sm">
+              <p className="text-purple-300 text-sm">
                 Daily sentiment distribution
               </p>
             </div>
@@ -625,12 +625,12 @@ const AdminAnalyticsPage = () => {
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={trends}>
               <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" />
-              <XAxis dataKey="_id" stroke="#fb923c" />
-              <YAxis stroke="#fb923c" />
+              <XAxis dataKey="_id" stroke="#c084fc" />
+              <YAxis stroke="#c084fc" />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "#1e293b",
-                  border: "1px solid #f97316",
+                  border: "1px solid #a855f7",
                   borderRadius: "12px",
                 }}
               />
@@ -663,14 +663,14 @@ const AdminAnalyticsPage = () => {
         {/* AI Insights & Predictions */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Risk Factors */}
-          <div className="bg-linear-to-br from-red-900/40 to-orange-900/40 backdrop-blur-xl border border-red-500/30 rounded-3xl p-8">
+          <div className="bg-linear-to-br from-red-900/40 to-pink-900/40 backdrop-blur-xl border border-red-500/30 rounded-3xl p-8">
             <div className="flex items-center gap-3 mb-6">
               <div className="p-3 bg-red-500/20 rounded-xl">
                 <AlertTriangle className="w-6 h-6 text-red-400" />
               </div>
               <div>
                 <h3 className="text-2xl font-black text-white">Risk Factors</h3>
-                <p className="text-orange-300 text-sm">
+                <p className="text-purple-300 text-sm">
                   Areas requiring attention
                 </p>
               </div>
@@ -731,7 +731,7 @@ const AdminAnalyticsPage = () => {
                 <h3 className="text-2xl font-black text-white">
                   AI Recommendations
                 </h3>
-                <p className="text-orange-300 text-sm">
+                <p className="text-purple-300 text-sm">
                   Suggested improvements
                 </p>
               </div>

@@ -234,12 +234,6 @@ const LandingPage = () => {
                 Analytics
               </Link>
               <Link
-                href="/join-live-stream"
-                className="text-purple-200 hover:text-white transition-colors font-semibold"
-              >
-                Join Live Stream
-              </Link>
-              <Link
                 href="/schedule"
                 className="text-purple-200 hover:text-white transition-colors font-semibold"
               >

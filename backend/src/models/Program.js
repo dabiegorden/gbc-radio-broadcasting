@@ -3,8 +3,9 @@ import mongoose from "mongoose";
 const socialStreamSchema = new mongoose.Schema(
   {
     platform: {
+      // Reduced to YouTube only — Facebook / TikTok / Instagram removed.
       type: String,
-      enum: ["tiktok", "facebook", "instagram", "youtube"],
+      enum: ["youtube"],
       required: true,
     },
     url: {
@@ -21,7 +22,7 @@ const socialStreamSchema = new mongoose.Schema(
     },
     label: {
       type: String,
-      default: null, // e.g. "Main YouTube Stream", "TikTok Live"
+      default: null, // e.g. "Main YouTube Stream"
     },
   },
   { _id: true },

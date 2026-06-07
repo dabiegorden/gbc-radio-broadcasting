@@ -8,6 +8,7 @@ import {
   User,
   Calendar,
   ListVideo,
+  Youtube,
 } from "lucide-react";
 
 import AdminNavbar from "@/components/AdminNavbar";
@@ -24,7 +25,7 @@ export const AdminSidebarMenu = [
   },
   {
     id: 2,
-    title: "Streaming",
+    title: "Radio Streaming",
     href: "/dashboard/streaming",
     icon: GalleryHorizontal,
   },
@@ -34,12 +35,7 @@ export const AdminSidebarMenu = [
     href: "/dashboard/programs",
     icon: Radio,
   },
-  {
-    id: 4,
-    title: "Go Live",
-    href: "/dashboard/go-live",
-    icon: ListVideo,
-  },
+
   {
     id: 5,
     title: "Engagement",
@@ -48,9 +44,15 @@ export const AdminSidebarMenu = [
   },
   {
     id: 6,
-    title: "Analytics",
+    title: "Radio Analytics",
     href: "/dashboard/analytics",
     icon: GitGraph,
+  },
+  {
+    id: 10,
+    title: "Live YouTube Streaming",
+    href: "/dashboard/youtube-analytics",
+    icon: Youtube,
   },
   {
     id: 7,

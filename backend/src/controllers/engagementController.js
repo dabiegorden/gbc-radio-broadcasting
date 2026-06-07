@@ -446,7 +446,7 @@ Please analyze and respond in JSON format with:
 Consider tone, enthusiasm level, constructive feedback, and engagement likelihood.`;
 
     // Correct way to get the model from Gemini client
-    const model = client.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = client.getGenerativeModel({ model: "gemini-3.5-flash" });
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
