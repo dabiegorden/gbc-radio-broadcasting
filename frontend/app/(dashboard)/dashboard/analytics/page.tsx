@@ -56,6 +56,18 @@ interface DashboardAnalytics {
     totalListeners: number;
     avgEngagement: number;
   }>;
+  insights?: {
+    riskFactors: string[];
+    recommendations: string[];
+    sentimentSummary?: {
+      total: number;
+      positive: number;
+      negative: number;
+      neutral: number;
+      positiveRatio: number;
+      negativeRatio: number;
+    };
+  };
 }
 
 interface TrendData {
@@ -677,47 +689,32 @@ const AdminAnalyticsPage = () => {
             </div>
 
             <div className="space-y-3">
-              {analytics &&
-              analytics.summary?.avgEngagementScore !== undefined &&
-              analytics.summary.avgEngagementScore < 50 ? (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-                  <p className="text-red-300 text-sm">
-                    Low average engagement score (
-                    {analytics.summary.avgEngagementScore.toFixed(1)}/100)
-                  </p>
-                </div>
-              ) : null}
-              {analytics &&
-              analytics.summary?.livePrograms !== undefined &&
-              analytics.summary.livePrograms === 0 ? (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-                  <p className="text-red-300 text-sm">
-                    No programs currently live
-                  </p>
-                </div>
-              ) : null}
-              {analytics &&
-              analytics.summary?.currentListeners !== undefined &&
-              analytics.summary.currentListeners < 10 ? (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-                  <p className="text-red-300 text-sm">
-                    Low current listener count
-                  </p>
-                </div>
-              ) : null}
-              {analytics &&
-                analytics.summary?.avgEngagementScore !== undefined &&
-                analytics.summary?.livePrograms !== undefined &&
-                analytics.summary?.currentListeners !== undefined &&
-                analytics.summary.avgEngagementScore >= 50 &&
-                analytics.summary.livePrograms > 0 &&
-                analytics.summary.currentListeners >= 10 && (
-                  <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
-                    <p className="text-green-300 text-sm">
-                      ✓ No major risks identified
+              {(analytics?.insights?.riskFactors?.length
+                ? analytics.insights.riskFactors
+                : ["No major risks identified"]
+              ).map((risk, index) => {
+                const isPositive =
+                  risk.toLowerCase().includes("no major risks");
+                return (
+                  <div
+                    key={index}
+                    className={`p-4 rounded-xl border ${
+                      isPositive
+                        ? "bg-green-500/10 border-green-500/30"
+                        : "bg-red-500/10 border-red-500/30"
+                    }`}
+                  >
+                    <p
+                      className={`text-sm ${
+                        isPositive ? "text-green-300" : "text-red-300"
+                      }`}
+                    >
+                      {isPositive ? "✓ " : "⚠ "}
+                      {risk}
                     </p>
                   </div>
-                )}
+                );
+              })}
             </div>
           </div>
 
@@ -738,35 +735,17 @@ const AdminAnalyticsPage = () => {
             </div>
 
             <div className="space-y-3">
-              {analytics &&
-              analytics.summary?.totalEngagements !== undefined &&
-              analytics.summary.totalEngagements < 100 ? (
-                <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
-                  <p className="text-green-300 text-sm">
-                    💡 Increase social media promotion to boost engagement
-                  </p>
+              {(analytics?.insights?.recommendations?.length
+                ? analytics.insights.recommendations
+                : ["Continue current strategies and monitor engagement"]
+              ).map((rec, index) => (
+                <div
+                  key={index}
+                  className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl"
+                >
+                  <p className="text-green-300 text-sm">💡 {rec}</p>
                 </div>
-              ) : null}
-              {analytics &&
-              analytics.summary?.livePrograms !== undefined &&
-              analytics.summary.livePrograms < 3 ? (
-                <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
-                  <p className="text-green-300 text-sm">
-                    💡 Schedule more live programs to increase listener
-                    engagement
-                  </p>
-                </div>
-              ) : null}
-              {analytics &&
-              analytics.summary?.avgEngagementScore !== undefined &&
-              analytics.summary.avgEngagementScore > 70 ? (
-                <div className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl">
-                  <p className="text-green-300 text-sm">
-                    💡 Excellent engagement! Consider expanding to more time
-                    slots
-                  </p>
-                </div>
-              ) : null}
+              ))}
             </div>
           </div>
         </div>

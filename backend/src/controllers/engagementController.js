@@ -1,7 +1,11 @@
 import Engagement from "../models/Engagement.js";
 import { getGeminiClient } from "../config/gemini.js";
+import { analyzeSentiment } from "../services/sentimentService.js";
 import Program from "../models/Program.js";
 import mongoose from "mongoose";
+
+// Gemini model used for comment analysis. Keep in sync with config/gemini.js.
+const GEMINI_MODEL = "gemini-3.5-flash";
 
 /**
  * Engagement Controller
@@ -426,7 +430,9 @@ export const analyzeCommentWithGemini = async (comment) => {
     const client = getGeminiClient();
 
     if (!client) {
-      throw new Error("Gemini client not initialized");
+      // No Gemini key configured — fall back to the offline lexicon analyzer
+      // so sentiment/score are still populated instead of staying null.
+      return lexiconAnalysis(comment);
     }
 
     const prompt = `Analyze the following radio listener comment and provide detailed insights:
@@ -446,7 +452,7 @@ Please analyze and respond in JSON format with:
 Consider tone, enthusiasm level, constructive feedback, and engagement likelihood.`;
 
     // Correct way to get the model from Gemini client
-    const model = client.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const model = client.getGenerativeModel({ model: GEMINI_MODEL });
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -469,16 +475,41 @@ Consider tone, enthusiasm level, constructive feedback, and engagement likelihoo
     };
   } catch (error) {
     console.error("Gemini analysis error:", error);
-    // Return default analysis if AI fails
-    return {
-      sentiment: "neutral",
-      score: 50,
-      summary: "Analysis unavailable",
-      keywords: [],
-      predictedFollowUp: false,
-    };
+    // Fall back to the offline lexicon analyzer so sentiment/score are still
+    // populated (instead of a flat "neutral") when the AI call fails.
+    return lexiconAnalysis(comment);
   }
 };
+
+/**
+ * Offline fallback analysis using the lexicon sentiment service.
+ * Produces the same shape as analyzeCommentWithGemini so callers are unchanged.
+ */
+function lexiconAnalysis(comment = "") {
+  const { sentiment, confidence } = analyzeSentiment(comment);
+
+  // Map confidence (0.5–0.95) to an engagement score (0–100), nudged by polarity.
+  let score = Math.round(confidence * 100);
+  if (sentiment === "negative") score = Math.max(0, 100 - score);
+  if (sentiment === "neutral") score = 50;
+
+  const keywords = String(comment)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}'\s]/gu, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 3)
+    .slice(0, 5);
+
+  return {
+    sentiment,
+    score,
+    summary: comment
+      ? `Listener comment classified as ${sentiment}.`
+      : "No comment text provided.",
+    keywords,
+    predictedFollowUp: sentiment === "positive",
+  };
+}
 
 /**
  * Batch analyze comments
@@ -544,6 +575,54 @@ export const analyzeBatchComments = async (req, res) => {
     console.error("Batch analysis error:", error);
     res.status(500).json({
       message: "Server error during batch analysis",
+      error: error.message,
+    });
+  }
+};
+
+/**
+ * Backfill sentiment/AI analysis for comment engagements that are missing it.
+ * Useful for records created before analysis was working. Uses the same
+ * analyzer (Gemini with offline lexicon fallback) so it never fails hard.
+ * POST /api/engagement/backfill-sentiment
+ */
+export const backfillSentiment = async (req, res) => {
+  try {
+    const { limit = 500 } = req.body || {};
+
+    const pending = await Engagement.find({
+      engagementType: "comment",
+      "comment.text": { $exists: true, $ne: null },
+      $or: [
+        { "comment.sentiment": null },
+        { "comment.sentiment": { $exists: false } },
+      ],
+    }).limit(parseInt(limit));
+
+    let updated = 0;
+    for (const engagement of pending) {
+      const analysis = await analyzeCommentWithGemini(engagement.comment.text);
+      engagement.comment.sentiment = analysis.sentiment;
+      engagement.comment.engagementScore = analysis.score;
+      engagement.comment.aiAnalysis = {
+        summary: analysis.summary,
+        keywords: analysis.keywords,
+        predictedFollowUp: analysis.predictedFollowUp,
+      };
+      engagement.updatedAt = new Date();
+      await engagement.save();
+      updated++;
+    }
+
+    res.json({
+      message: "Sentiment backfill completed",
+      matched: pending.length,
+      updated,
+    });
+  } catch (error) {
+    console.error("Backfill sentiment error:", error);
+    res.status(500).json({
+      message: "Server error during sentiment backfill",
       error: error.message,
     });
   }

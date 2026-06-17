@@ -7,6 +7,7 @@ import {
   getEngagementStats,
   getEngagementInsights,
   analyzeBatchComments,
+  backfillSentiment,
   updateEngagement,
   deleteEngagement,
 } from "../controllers/engagementController.js";
@@ -66,6 +67,18 @@ router.post(
   protect,
   authorize("admin"),
   analyzeBatchComments,
+);
+
+/**
+ * @route POST /api/engagement/backfill-sentiment
+ * @desc Re-analyze comment engagements missing sentiment
+ * @access Private/Admin
+ */
+router.post(
+  "/backfill-sentiment",
+  protect,
+  authorize("admin"),
+  backfillSentiment,
 );
 
 /**
