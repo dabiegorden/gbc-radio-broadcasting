@@ -27,7 +27,6 @@ import {
   Share2,
   MessageSquare,
   Send,
-  Sparkles,
   Smile,
   Meh,
   Frown,
@@ -116,7 +115,6 @@ interface Engagement {
     text: string;
     sentiment: string | null;
     engagementScore: number;
-    aiAnalysis?: { summary: string; keywords: string[] };
   };
   createdAt: string;
 }
@@ -1074,19 +1072,6 @@ const CommentsSection = ({ programId }: { programId: string }) => {
                     )}
                   </div>
                   <p className="text-purple-100 text-sm">{e.comment?.text}</p>
-                  {e.comment?.aiAnalysis?.summary && (
-                    <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/20 rounded-lg">
-                      <div className="flex items-center gap-1 mb-1">
-                        <Sparkles className="w-3 h-3 text-purple-400" />
-                        <span className="text-purple-300 text-xs font-semibold">
-                          AI Insight
-                        </span>
-                      </div>
-                      <p className="text-purple-200 text-xs">
-                        {e.comment.aiAnalysis.summary}
-                      </p>
-                    </div>
-                  )}
                 </div>
               );
             })}
