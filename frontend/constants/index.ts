@@ -55,6 +55,12 @@ export const AdminSidebarMenu = [
     icon: Youtube,
   },
   {
+    id: 11,
+    title: "YouTube Analytics",
+    href: "/dashboard/youtube-analysis-insight",
+    icon: GitGraph,
+  },
+  {
     id: 7,
     title: "Users",
     href: "/dashboard/users",

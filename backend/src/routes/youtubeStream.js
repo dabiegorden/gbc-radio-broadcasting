@@ -15,6 +15,12 @@ import {
   goLive,
   connectionStatus,
 } from "../controllers/youtubeBroadcastController.js";
+// Aggregate (platform-wide) YouTube analytics + PDF report
+import {
+  getYoutubeDashboard,
+  getYoutubeTrends,
+  generateYoutubePDFReport,
+} from "../controllers/youtubeInsightController.js";
 import { protect, authorize } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -53,6 +59,43 @@ router.get("/connection", protect, connectionStatus);
  * @body  { title, description?, scheduledStartTime? }
  */
 router.post("/go-live", protect, authorize("admin"), goLive);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGGREGATE INSIGHTS — platform-wide YouTube analytics for the admin
+// /dashboard/youtube-analysis-insight page. Declared BEFORE "/:id" so the
+// "insights" literal segment is not captured as a stream :id.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * @route GET /api/youtube/insights/dashboard
+ * @desc  Aggregated analytics across all YouTube streams
+ * @access Private/Admin
+ */
+router.get(
+  "/insights/dashboard",
+  protect,
+  authorize("admin"),
+  getYoutubeDashboard,
+);
+
+/**
+ * @route GET /api/youtube/insights/trends
+ * @desc  Daily chat/sentiment trends across all YouTube streams
+ * @access Private/Admin
+ */
+router.get("/insights/trends", protect, authorize("admin"), getYoutubeTrends);
+
+/**
+ * @route GET /api/youtube/insights/report/pdf
+ * @desc  Downloadable PDF report of the YouTube analytics overview
+ * @access Private/Admin
+ */
+router.get(
+  "/insights/report/pdf",
+  protect,
+  authorize("admin"),
+  generateYoutubePDFReport,
+);
 
 // ── Public reads (frontend watch page: embed + live analytics) ───────────────
 

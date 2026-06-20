@@ -65,6 +65,58 @@ export interface YoutubeChat {
   sentimentConfidence?: number;
 }
 
+// ─── Aggregate insight types (platform-wide) ──────────────────────────────────
+
+export interface YoutubeInsightSummary {
+  totalStreams: number;
+  liveStreams: number;
+  endedStreams: number;
+  totalViews: number;
+  totalLikes: number;
+  totalComments: number;
+  currentViewers: number;
+  totalMessages: number;
+  avgEngagementScore: number;
+}
+
+export interface YoutubeDashboardInsights {
+  summary: YoutubeInsightSummary;
+  sentimentBreakdown: Array<{ _id: string; count: number }>;
+  mostActiveUsers: Array<{ user: string; messages: number }>;
+  trendingKeywords: Array<{ word: string; count: number }>;
+  topStreams: Array<{
+    _id: string;
+    title: string;
+    channelTitle: string;
+    views: number;
+    likes: number;
+    currentViewers: number;
+    liveStatus: string;
+    totalMessages: number;
+    engagementScore: number;
+  }>;
+  insights: {
+    riskFactors: string[];
+    recommendations: string[];
+    sentimentSummary?: {
+      total: number;
+      positive: number;
+      negative: number;
+      neutral: number;
+      positiveRatio: number;
+      negativeRatio: number;
+    };
+  };
+}
+
+export interface YoutubeTrendPoint {
+  _id: string;
+  totalMessages: number;
+  positiveCount: number;
+  negativeCount: number;
+  neutralCount: number;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getToken(): string {
@@ -189,4 +241,55 @@ export async function deleteStream(id: string) {
     headers: authHeaders(),
   });
   return handle(res);
+}
+
+// ─── Aggregate insights (platform-wide YouTube analytics) ─────────────────────
+
+/** Aggregated analytics across all monitored YouTube streams. */
+export async function getYoutubeInsightDashboard(params?: {
+  startDate?: string;
+  endDate?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.startDate) qs.set("startDate", params.startDate);
+  if (params?.endDate) qs.set("endDate", params.endDate);
+  const url = `${API_URL}/youtube/insights/dashboard${qs.toString() ? `?${qs}` : ""}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  const data = await handle(res);
+  return data.analytics as YoutubeDashboardInsights;
+}
+
+/** Daily chat/sentiment trends across all YouTube streams. */
+export async function getYoutubeInsightTrends(params?: {
+  days?: number;
+  period?: string;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.days) qs.set("days", String(params.days));
+  if (params?.period) qs.set("period", params.period);
+  const url = `${API_URL}/youtube/insights/trends${qs.toString() ? `?${qs}` : ""}`;
+  const res = await fetch(url, { headers: authHeaders() });
+  const data = await handle(res);
+  return (data.trends || []) as YoutubeTrendPoint[];
+}
+
+/** Download the YouTube analytics PDF report as a Blob. */
+export async function downloadYoutubeInsightPDF(params?: {
+  startDate?: string;
+  endDate?: string;
+  includeStreams?: boolean;
+}) {
+  const qs = new URLSearchParams();
+  if (params?.startDate) qs.set("startDate", params.startDate);
+  if (params?.endDate) qs.set("endDate", params.endDate);
+  qs.set("includeStreams", params?.includeStreams === false ? "false" : "true");
+  const res = await fetch(
+    `${API_URL}/youtube/insights/report/pdf?${qs.toString()}`,
+    { headers: authHeaders() },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.message || `Request failed (${res.status})`);
+  }
+  return res.blob();
 }
