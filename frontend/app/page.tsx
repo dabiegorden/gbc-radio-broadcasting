@@ -326,6 +326,13 @@ const LandingPage = () => {
                 >
                   Analytics
                 </a>
+                <Link
+                  href="/schedule"
+                  className="text-purple-200 hover:text-white transition-colors font-semibold"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Schedule Meeting
+                </Link>
                 <a
                   href="#about"
                   className="text-purple-200 hover:text-white transition-colors font-semibold"
@@ -359,6 +366,14 @@ const LandingPage = () => {
                       {user.role === "admin"
                         ? "Go to Dashboard"
                         : "Go to Live Stream"}
+                    </Link>
+
+                    <Link
+                      href={getMyMeetingsLink()}
+                      className="px-6 py-3 bg-linear-to-br from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 rounded-xl text-white font-semibold text-center transition-all duration-300 shadow-lg"
+                      onClick={() => setIsMenuOpen(false)}
+                    >
+                      {user.role === "users" ? "My meetings" : "Dashboard"}
                     </Link>
 
                     <button

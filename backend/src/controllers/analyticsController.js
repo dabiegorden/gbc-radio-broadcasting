@@ -472,6 +472,8 @@ export const generatePDFReport = async (req, res) => {
         host: p.host,
         category: p.category,
         isLive: p.isLive,
+        scheduleStartTime: p.scheduleStartTime,
+        scheduleEndTime: p.scheduleEndTime,
         currentListeners: p.currentListeners || 0,
         totalListeners: p.totalListeners || 0,
         comments: stats.comment,
@@ -775,12 +777,14 @@ export const generatePDFReport = async (req, res) => {
       ];
 
       const cols = [
-        { key: "title", label: "Programme", w: 150 },
-        { key: "host", label: "Host", w: 95 },
-        { key: "comments", label: "Comments", w: 60 },
-        { key: "likes", label: "Likes", w: 50 },
-        { key: "shares", label: "Shares", w: 50 },
-        { key: "listeners", label: "Listeners", w: CONTENT_W - 405 },
+        { key: "title", label: "Programme", w: 90 },
+        { key: "host", label: "Host", w: 60 },
+        { key: "start", label: "Started", w: 72 },
+        { key: "end", label: "Ended", w: 72 },
+        { key: "comments", label: "Cmts", w: 40 },
+        { key: "likes", label: "Likes", w: 36 },
+        { key: "shares", label: "Shares", w: 36 },
+        { key: "listeners", label: "Listeners", w: CONTENT_W - 406 },
       ];
 
       slotOrder.forEach((slot) => {
@@ -812,9 +816,9 @@ export const generatePDFReport = async (req, res) => {
         let hx = M;
         const hy = doc.y;
         doc.rect(M, hy, CONTENT_W, 20).fill(COLOR.primary);
-        doc.fillColor("#ffffff").fontSize(9).font("Helvetica-Bold");
+        doc.fillColor("#ffffff").fontSize(8).font("Helvetica-Bold");
         cols.forEach((c) => {
-          doc.text(c.label, hx + 6, hy + 6, { width: c.w - 6 });
+          doc.text(c.label, hx + 5, hy + 7, { width: c.w - 6 });
           hx += c.w;
         });
         doc.y = hy + 20;
@@ -839,15 +843,17 @@ export const generatePDFReport = async (req, res) => {
           const cells = [
             r.title || "-",
             r.host || "-",
+            formatDateTime(r.scheduleStartTime),
+            formatDateTime(r.scheduleEndTime),
             String(r.comments),
             String(r.likes),
             String(r.shares),
             String(r.totalListeners),
           ];
-          doc.fillColor(COLOR.text).fontSize(9).font("Helvetica");
+          doc.fillColor(COLOR.text).fontSize(8).font("Helvetica");
           cells.forEach((val, i) => {
-            doc.text(val, cx + 6, ry + 6, {
-              width: cols[i].w - 8,
+            doc.text(val, cx + 5, ry + 6, {
+              width: cols[i].w - 7,
               ellipsis: true,
             });
             cx += cols[i].w;
@@ -861,19 +867,30 @@ export const generatePDFReport = async (req, res) => {
         doc.rect(M, ty, CONTENT_W, 20).fill(COLOR.border);
         let tx = M;
         const totalCells = [
-          `${slot} total`,
-          "",
+          null, // label drawn separately below (spans first 4 columns)
+          null,
+          null,
+          null,
           String(totals.comments),
           String(totals.likes),
           String(totals.shares),
           String(totals.listeners),
         ];
-        doc.fillColor(COLOR.text).fontSize(9).font("Helvetica-Bold");
+        doc.fillColor(COLOR.text).fontSize(8).font("Helvetica-Bold");
+        // Spanning label across Programme + Host + Started + Ended columns
+        const labelSpan =
+          cols[0].w + cols[1].w + cols[2].w + cols[3].w;
+        doc.text(`${slot} total`, tx + 5, ty + 6, {
+          width: labelSpan - 7,
+          ellipsis: true,
+        });
         totalCells.forEach((val, i) => {
-          doc.text(val, tx + 6, ty + 6, {
-            width: cols[i].w - 8,
-            ellipsis: true,
-          });
+          if (val !== null) {
+            doc.text(val, tx + 5, ty + 6, {
+              width: cols[i].w - 7,
+              ellipsis: true,
+            });
+          }
           tx += cols[i].w;
         });
         doc.y = ty + 28;
@@ -1002,6 +1019,22 @@ function getShowSlot(date) {
   if (hour < 12) return "Morning Shows";
   if (hour < 17) return "Afternoon Shows";
   return "Evening Shows";
+}
+
+/**
+ * Format a date as a compact "DD/MM/YY HH:mm" string for report tables.
+ */
+function formatDateTime(date) {
+  if (!date) return "-";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "-";
+  const pad = (n) => String(n).padStart(2, "0");
+  const day = pad(d.getDate());
+  const month = pad(d.getMonth() + 1);
+  const year = String(d.getFullYear()).slice(-2);
+  const hours = pad(d.getHours());
+  const mins = pad(d.getMinutes());
+  return `${day}/${month}/${year} ${hours}:${mins}`;
 }
 
 /**
