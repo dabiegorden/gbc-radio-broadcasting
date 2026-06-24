@@ -50,9 +50,19 @@ interface TrendData {
   change: number;
 }
 
+interface ActivityItem {
+  _id: string;
+  engagementType: string;
+  comment?: { text?: string; sentiment?: string | null };
+  user?: { fullName?: string; email?: string };
+  program?: { title?: string };
+  createdAt: string;
+}
+
 const AdminDashboardHomePage = () => {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [recentPrograms, setRecentPrograms] = useState<RecentProgram[]>([]);
+  const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
 
@@ -60,10 +70,11 @@ const AdminDashboardHomePage = () => {
   const fetchDashboardData = async () => {
     try {
       const token = localStorage.getItem("token");
+      const authHeaders = { Authorization: `Bearer ${token}` };
 
       // Fetch analytics
       const analyticsRes = await fetch(`${API_URL}/analytics/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: authHeaders,
       });
 
       if (analyticsRes.ok) {
@@ -71,14 +82,26 @@ const AdminDashboardHomePage = () => {
         setStats(analyticsData.analytics.summary);
       }
 
-      // Fetch recent programs
-      const programsRes = await fetch(`${API_URL}/programs?limit=5`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // Fetch recent programs (API returns { programs: [...] })
+      const programsRes = await fetch(
+        `${API_URL}/programs?limit=5&sortBy=createdAt&sortOrder=desc`,
+        { headers: authHeaders },
+      );
 
       if (programsRes.ok) {
         const programsData = await programsRes.json();
-        setRecentPrograms(programsData.data || []);
+        setRecentPrograms(programsData.programs || []);
+      }
+
+      // Fetch recent platform activity (engagements) from the database
+      const activityRes = await fetch(
+        `${API_URL}/engagement?limit=10&sortBy=createdAt&sortOrder=desc`,
+        { headers: authHeaders },
+      );
+
+      if (activityRes.ok) {
+        const activityData = await activityRes.json();
+        setActivities(activityData.engagements || []);
       }
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
@@ -439,6 +462,93 @@ const AdminDashboardHomePage = () => {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Recent Activity Feed */}
+        <div className="mb-8">
+          <div className="bg-linear-to-br from-slate-900/40 to-purple-900/40 backdrop-blur-xl border border-purple-500/30 rounded-3xl p-6 shadow-xl">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-pink-500/20 rounded-xl">
+                  <Activity className="w-6 h-6 text-pink-400" />
+                </div>
+                <h2 className="text-2xl font-black text-white">
+                  Recent Activity
+                </h2>
+              </div>
+              <Link
+                href="/dashboard/analytics"
+                className="text-purple-400 hover:text-purple-300 text-sm font-semibold flex items-center gap-1"
+              >
+                View Analytics
+                <ArrowUpRight className="w-4 h-4" />
+              </Link>
+            </div>
+
+            <div className="space-y-3">
+              {activities.length > 0 ? (
+                activities.map((item) => {
+                  const verb =
+                    item.engagementType === "comment"
+                      ? "commented on"
+                      : item.engagementType === "like"
+                        ? "liked"
+                        : item.engagementType === "share"
+                          ? "shared"
+                          : item.engagementType === "follow"
+                            ? "followed"
+                            : "listened to";
+                  const Icon =
+                    item.engagementType === "comment"
+                      ? MessageSquare
+                      : item.engagementType === "like"
+                        ? Heart
+                        : item.engagementType === "share"
+                          ? Signal
+                          : Radio;
+                  return (
+                    <div
+                      key={item._id}
+                      className="flex items-start gap-3 p-4 bg-purple-500/10 border border-purple-500/20 rounded-xl hover:bg-purple-500/15 transition-colors"
+                    >
+                      <div className="p-2 bg-purple-500/20 rounded-lg shrink-0">
+                        <Icon className="w-4 h-4 text-purple-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm">
+                          <span className="font-bold">
+                            {item.user?.fullName || "A listener"}
+                          </span>{" "}
+                          <span className="text-purple-300">{verb}</span>{" "}
+                          <span className="font-semibold text-purple-200">
+                            {item.program?.title || "a program"}
+                          </span>
+                        </p>
+                        {item.comment?.text && (
+                          <p className="text-purple-400 text-xs mt-1 truncate">
+                            “{item.comment.text}”
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-purple-500 text-xs shrink-0 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(item.createdAt).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-8 text-purple-400">
+                  No recent activity yet
+                </div>
+              )}
             </div>
           </div>
         </div>

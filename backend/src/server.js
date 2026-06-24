@@ -12,6 +12,7 @@ dotenv.config({ quiet: true });
 // Config imports
 import { connectDB } from "./config/database.js";
 import { getGeminiClient } from "./config/gemini.js";
+import Program from "./models/Program.js";
 
 // Get __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -84,6 +85,61 @@ app.get("/health", (req, res) => {
   });
 });
 
+// ── Real-time listener tracking ─────────────────────────────────────────────
+// In-memory map: programId -> Map<socketId, listenerId>
+// `listenerId` is the authenticated user id when available, otherwise the
+// socket id (so anonymous listeners each count once). Counting unique
+// listenerIds means the SAME user opening two tabs is only counted once, and
+// when every connection for that user leaves/disconnects the count drops.
+const programListeners = new Map();
+
+const uniqueListenerCount = (programId) => {
+  const sockets = programListeners.get(programId);
+  if (!sockets) return 0;
+  return new Set(sockets.values()).size;
+};
+
+const syncListenerCount = async (programId) => {
+  const count = uniqueListenerCount(programId);
+  try {
+    await Program.findByIdAndUpdate(programId, { currentListeners: count });
+  } catch (err) {
+    console.error("Failed to sync listener count:", err.message);
+  }
+  io.emit("listener-count-updated", { programId, currentListeners: count });
+  return count;
+};
+
+const addListener = async (socket, programId, listenerId) => {
+  if (!programId) return;
+  if (!programListeners.has(programId)) {
+    programListeners.set(programId, new Map());
+  }
+  const sockets = programListeners.get(programId);
+
+  // Was this listener already present (another tab/connection)?
+  const alreadyPresent = new Set(sockets.values()).has(listenerId);
+  sockets.set(socket.id, listenerId);
+
+  // Only count a brand-new unique listener toward the cumulative total.
+  if (!alreadyPresent) {
+    try {
+      await Program.findByIdAndUpdate(programId, { $inc: { totalListeners: 1 } });
+    } catch (err) {
+      console.error("Failed to increment total listeners:", err.message);
+    }
+  }
+  await syncListenerCount(programId);
+};
+
+const removeListener = async (socket, programId) => {
+  const sockets = programListeners.get(programId);
+  if (!sockets || !sockets.has(socket.id)) return;
+  sockets.delete(socket.id);
+  if (sockets.size === 0) programListeners.delete(programId);
+  await syncListenerCount(programId);
+};
+
 // ── Socket.IO events ──────────────────────────────────────────────────────────
 io.on("connection", (socket) => {
   console.log("New client connected:", socket.id);
@@ -94,6 +150,20 @@ io.on("connection", (socket) => {
 
   socket.on("stream-status", (status) => {
     io.emit("stream-status", status);
+  });
+
+  // ── Real-time program listener join/leave ──────────────────────────────────
+  socket.on("join-program", ({ programId, userId }) => {
+    const listenerId = userId || socket.id;
+    socket.join(`program-${programId}`);
+    addListener(socket, programId, listenerId);
+    console.log(`Listener ${listenerId} joined program ${programId}`);
+  });
+
+  socket.on("leave-program", ({ programId }) => {
+    socket.leave(`program-${programId}`);
+    removeListener(socket, programId);
+    console.log(`Socket ${socket.id} left program ${programId}`);
   });
 
   // Existing session-level events
@@ -120,6 +190,10 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     console.log("Client disconnected:", socket.id);
+    // Drop this socket from every program it was listening to and re-sync counts.
+    for (const programId of [...programListeners.keys()]) {
+      removeListener(socket, programId);
+    }
   });
 });
 

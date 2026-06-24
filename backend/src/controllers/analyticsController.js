@@ -414,6 +414,73 @@ export const generatePDFReport = async (req, res) => {
 
     const insights = generateDashboardInsights(summary, sentimentBreakdown);
 
+    // ── Per-program engagement breakdown (comments / likes / shares) ──────────
+    // The supervisor wants each show analysed individually instead of having
+    // all programmes lumped together. We group engagements by program + type.
+    const perProgramAgg = await Engagement.aggregate([
+      { $match: dateFilter },
+      {
+        $group: {
+          _id: { program: "$program", type: "$engagementType" },
+          count: { $sum: 1 },
+          avgScore: { $avg: "$comment.engagementScore" },
+        },
+      },
+    ]);
+
+    // programId -> { comment, like, share, listening, follow, totalScore, scored }
+    const programStatsMap = new Map();
+    perProgramAgg.forEach((row) => {
+      const pid = row._id.program?.toString();
+      if (!pid) return;
+      if (!programStatsMap.has(pid)) {
+        programStatsMap.set(pid, {
+          comment: 0,
+          like: 0,
+          share: 0,
+          listening: 0,
+          follow: 0,
+          avgScore: 0,
+        });
+      }
+      const entry = programStatsMap.get(pid);
+      if (row._id.type in entry) entry[row._id.type] = row.count;
+      if (row._id.type === "comment" && row.avgScore != null) {
+        entry.avgScore = row.avgScore;
+      }
+    });
+
+    // Attach the stats to each program and bucket by time-of-day show slot.
+    const allPrograms = await Program.find().sort({ scheduleStartTime: 1 });
+    const showSlots = {
+      "Morning Shows": [],
+      "Afternoon Shows": [],
+      "Evening Shows": [],
+    };
+    allPrograms.forEach((p) => {
+      const stats = programStatsMap.get(p._id.toString()) || {
+        comment: 0,
+        like: 0,
+        share: 0,
+        listening: 0,
+        follow: 0,
+        avgScore: 0,
+      };
+      const slot = getShowSlot(p.scheduleStartTime);
+      showSlots[slot].push({
+        title: p.title,
+        host: p.host,
+        category: p.category,
+        isLive: p.isLive,
+        currentListeners: p.currentListeners || 0,
+        totalListeners: p.totalListeners || 0,
+        comments: stats.comment,
+        likes: stats.like,
+        shares: stats.share,
+        avgScore: stats.avgScore || 0,
+      });
+    });
+
     // ── Theme ──────────────────────────────────────────────────────────────
     const COLOR = {
       primary: "#7c3aed",
@@ -487,14 +554,16 @@ export const generatePDFReport = async (req, res) => {
     }
 
     doc.fillColor(COLOR.text);
-    doc.y = 140;
+    doc.y = 135;
 
-    // ── Metric cards ───────────────────────────────────────────────────────
+    // ── Overview / Metric cards ────────────────────────────────────────────
+    sectionTitle("Overview");
+
     const cards = [
       { label: "Total Users", value: totalUsers },
       { label: "Total Programs", value: `${totalPrograms} (${livePrograms} live)` },
       { label: "Engagements", value: totalEngagements },
-      { label: "Listeners", value: summary.totalListeners },
+      { label: "Total Listeners", value: summary.totalListeners },
       {
         label: "Current Listeners",
         value: summary.currentListeners,
@@ -504,28 +573,29 @@ export const generatePDFReport = async (req, res) => {
         value: `${summary.avgEngagementScore.toFixed(1)}/100`,
       },
     ];
-    const cardGap = 12;
+    const cardGap = 14;
     const cardW = (CONTENT_W - cardGap * 2) / 3;
-    const cardH = 56;
+    const cardH = 64;
+    const cardsTop = doc.y;
     cards.forEach((card, i) => {
       const col = i % 3;
       const row = Math.floor(i / 3);
       const x = M + col * (cardW + cardGap);
-      const y = doc.y + row * (cardH + cardGap);
+      const y = cardsTop + row * (cardH + cardGap);
       doc.roundedRect(x, y, cardW, cardH, 8).fill(COLOR.light);
       doc.roundedRect(x, y, cardW, cardH, 8).lineWidth(1).stroke(COLOR.border);
       doc
         .fillColor(COLOR.muted)
         .fontSize(8)
         .font("Helvetica-Bold")
-        .text(card.label.toUpperCase(), x + 12, y + 10, { width: cardW - 24 });
+        .text(card.label.toUpperCase(), x + 12, y + 12, { width: cardW - 24 });
       doc
         .fillColor(COLOR.primary)
-        .fontSize(18)
+        .fontSize(17)
         .font("Helvetica-Bold")
-        .text(String(card.value), x + 12, y + 26, { width: cardW - 24 });
+        .text(String(card.value), x + 12, y + 30, { width: cardW - 24 });
     });
-    doc.y += Math.ceil(cards.length / 3) * (cardH + cardGap) + 8;
+    doc.y = cardsTop + Math.ceil(cards.length / 3) * (cardH + cardGap) + 10;
     doc.fillColor(COLOR.text);
 
     // ── Engagement breakdown ───────────────────────────────────────────────
@@ -680,27 +750,65 @@ export const generatePDFReport = async (req, res) => {
       COLOR.recText,
     );
 
-    // ── Program performance (optional) ─────────────────────────────────────
+    // ── Per-programme analysis grouped by show slot ────────────────────────
+    // Each programme is analysed on its own (comments / likes / shares /
+    // listeners) and grouped into Morning / Afternoon / Evening shows so the
+    // supervisor can read each show's performance independently.
     if (includePrograms === "true") {
       doc.addPage();
-      sectionTitle("Top Program Performance");
+      sectionTitle("Programme Analysis by Show");
 
-      const programs = await Program.find()
-        .sort({ totalListeners: -1 })
-        .limit(10);
+      doc
+        .fillColor(COLOR.muted)
+        .fontSize(10)
+        .font("Helvetica")
+        .text(
+          "Each programme is broken down individually by its broadcast slot.",
+          { width: CONTENT_W },
+        );
+      doc.moveDown(1);
 
-      if (programs.length === 0) {
-        doc.fontSize(10).font("Helvetica-Oblique").fillColor(COLOR.muted)
-          .text("No programs found.");
-      } else {
+      const slotOrder = [
+        "Morning Shows",
+        "Afternoon Shows",
+        "Evening Shows",
+      ];
+
+      const cols = [
+        { key: "title", label: "Programme", w: 150 },
+        { key: "host", label: "Host", w: 95 },
+        { key: "comments", label: "Comments", w: 60 },
+        { key: "likes", label: "Likes", w: 50 },
+        { key: "shares", label: "Shares", w: 50 },
+        { key: "listeners", label: "Listeners", w: CONTENT_W - 405 },
+      ];
+
+      slotOrder.forEach((slot) => {
+        const rows = showSlots[slot] || [];
+
+        // Slot heading
+        if (doc.y > doc.page.height - 120) doc.addPage();
+        doc.moveDown(0.4);
+        doc
+          .fillColor(COLOR.primaryDark)
+          .fontSize(13)
+          .font("Helvetica-Bold")
+          .text(slot, M, doc.y);
+        doc.moveDown(0.4);
+
+        if (rows.length === 0) {
+          doc
+            .fillColor(COLOR.muted)
+            .fontSize(10)
+            .font("Helvetica-Oblique")
+            .text("No programmes scheduled in this slot.", M, doc.y, {
+              width: CONTENT_W,
+            });
+          doc.moveDown(0.8);
+          return;
+        }
+
         // Table header
-        const cols = [
-          { label: "#", w: 24 },
-          { label: "Program", w: 200 },
-          { label: "Category", w: 110 },
-          { label: "Listeners", w: 70 },
-          { label: "Status", w: CONTENT_W - 404 },
-        ];
         let hx = M;
         const hy = doc.y;
         doc.rect(M, hy, CONTENT_W, 20).fill(COLOR.primary);
@@ -711,7 +819,10 @@ export const generatePDFReport = async (req, res) => {
         });
         doc.y = hy + 20;
 
-        programs.forEach((program, index) => {
+        // Slot totals accumulator
+        const totals = { comments: 0, likes: 0, shares: 0, listeners: 0 };
+
+        rows.forEach((r, index) => {
           if (doc.y > doc.page.height - 60) {
             doc.addPage();
           }
@@ -719,13 +830,19 @@ export const generatePDFReport = async (req, res) => {
           if (index % 2 === 0) {
             doc.rect(M, ry, CONTENT_W, 20).fill(COLOR.light);
           }
+          totals.comments += r.comments;
+          totals.likes += r.likes;
+          totals.shares += r.shares;
+          totals.listeners += r.totalListeners;
+
           let cx = M;
           const cells = [
-            String(index + 1),
-            program.title || "-",
-            program.category || "-",
-            String(program.totalListeners ?? 0),
-            program.status || (program.isLive ? "live" : "-"),
+            r.title || "-",
+            r.host || "-",
+            String(r.comments),
+            String(r.likes),
+            String(r.shares),
+            String(r.totalListeners),
           ];
           doc.fillColor(COLOR.text).fontSize(9).font("Helvetica");
           cells.forEach((val, i) => {
@@ -737,7 +854,30 @@ export const generatePDFReport = async (req, res) => {
           });
           doc.y = ry + 20;
         });
-      }
+
+        // Slot totals row
+        if (doc.y > doc.page.height - 60) doc.addPage();
+        const ty = doc.y;
+        doc.rect(M, ty, CONTENT_W, 20).fill(COLOR.border);
+        let tx = M;
+        const totalCells = [
+          `${slot} total`,
+          "",
+          String(totals.comments),
+          String(totals.likes),
+          String(totals.shares),
+          String(totals.listeners),
+        ];
+        doc.fillColor(COLOR.text).fontSize(9).font("Helvetica-Bold");
+        totalCells.forEach((val, i) => {
+          doc.text(val, tx + 6, ty + 6, {
+            width: cols[i].w - 8,
+            ellipsis: true,
+          });
+          tx += cols[i].w;
+        });
+        doc.y = ty + 28;
+      });
     }
 
     // ── Footer on every page ───────────────────────────────────────────────
@@ -849,6 +989,20 @@ export const getSavedReports = async (req, res) => {
     });
   }
 };
+
+/**
+ * Bucket a program into a broadcast show slot based on its scheduled start time.
+ * Morning  : 00:00 – 11:59
+ * Afternoon: 12:00 – 16:59
+ * Evening  : 17:00 – 23:59
+ */
+function getShowSlot(date) {
+  if (!date) return "Morning Shows";
+  const hour = new Date(date).getHours();
+  if (hour < 12) return "Morning Shows";
+  if (hour < 17) return "Afternoon Shows";
+  return "Evening Shows";
+}
 
 /**
  * Generate dashboard-level AI insights: risk factors and recommendations.

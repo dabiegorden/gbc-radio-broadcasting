@@ -197,19 +197,41 @@ const InlineRadioPlayer = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.8);
-  const [hasJoined, setHasJoined] = useState(false);
+  const [liveListeners, setLiveListeners] = useState(program.currentListeners);
   const [error, setError] = useState<string | null>(null);
+  const socketRef = useRef<Socket | null>(null);
 
-  // Join stream on mount
+  // Join stream on mount via WebSocket so the count rises when you join and
+  // falls when you leave/close the tab — and the same user is only counted once.
   useEffect(() => {
-    fetch(`${API_URL}/streaming/${program._id}/join`, {
-      method: "POST",
-    }).catch(() => {});
-    setHasJoined(true);
+    let userId: string | undefined;
+    try {
+      const raw =
+        typeof window !== "undefined" ? localStorage.getItem("user") : null;
+      if (raw) userId = JSON.parse(raw)?.id;
+    } catch {
+      /* ignore */
+    }
+
+    const socket = io(API_URL as string);
+    socketRef.current = socket;
+
+    socket.on("connect", () => {
+      socket.emit("join-program", { programId: program._id, userId });
+    });
+
+    socket.on(
+      "listener-count-updated",
+      (data: { programId: string; currentListeners: number }) => {
+        if (data.programId === program._id)
+          setLiveListeners(data.currentListeners);
+      },
+    );
+
     return () => {
-      fetch(`${API_URL}/streaming/${program._id}/leave`, {
-        method: "POST",
-      }).catch(() => {});
+      socket.emit("leave-program", { programId: program._id });
+      socket.disconnect();
+      socketRef.current = null;
     };
   }, [program._id]);
 
@@ -303,9 +325,7 @@ const InlineRadioPlayer = ({
         {program.isLive && (
           <div className="flex items-center gap-1.5 text-purple-400 text-xs">
             <Headphones className="w-3.5 h-3.5" />
-            <span>
-              {program.currentListeners + (hasJoined ? 1 : 0)} listening
-            </span>
+            <span>{liveListeners} listening</span>
           </div>
         )}
       </div>
@@ -1193,6 +1213,19 @@ const LiveStreamUsersPage = () => {
   useEffect(() => {
     socketRef.current = io(API_URL as string);
     socketRef.current.on("stream-status-updated", fetchPrograms);
+    // Keep listener counts on the broadcast cards in sync in real time.
+    socketRef.current.on(
+      "listener-count-updated",
+      (data: { programId: string; currentListeners: number }) => {
+        setPrograms((prev) =>
+          prev.map((p) =>
+            p._id === data.programId
+              ? { ...p, currentListeners: data.currentListeners }
+              : p,
+          ),
+        );
+      },
+    );
     return () => {
       socketRef.current?.disconnect();
     };
